@@ -1,1 +1,211 @@
-<!doctype html><title>Music Frame</title>
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1020">
+<title>Music Frame</title>
+<style>
+:root{--bg:#0b1020;--glass:rgba(255,255,255,.07);--glass-2:rgba(255,255,255,.12);--line:rgba(255,255,255,.14);--ink:#eef2ff;--muted:#9aa5c4;--accent:#ff7a59;--accent-2:#ffb86b;--ok:#4ade80;--bad:#f87171;--r:18px}
+*{box-sizing:border-box;margin:0}
+body{min-height:100vh;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);overflow-x:hidden}
+body::before{content:"";position:fixed;inset:-20%;z-index:-1;background:radial-gradient(40% 35% at 15% 20%,#ff7a5955,transparent 70%),radial-gradient(35% 30% at 85% 15%,#2dd4bf44,transparent 70%),radial-gradient(45% 40% at 60% 90%,#3b82f644,transparent 70%);filter:blur(30px);animation:drift 24s ease-in-out infinite alternate}
+@keyframes drift{to{transform:translate(3%,-2%) scale(1.05)}}
+main{max-width:960px;margin:0 auto;padding:28px 18px 60px;display:grid;gap:18px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-size:22px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+h1 i{width:12px;height:12px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 4px #ffffff10}
+h1 i.on{background:var(--ok);box-shadow:0 0 12px var(--ok)}
+h2{font-size:15px;font-weight:650;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+h2 small{font-weight:500;color:var(--muted);font-size:13px}
+.card{background:var(--glass);border:1px solid var(--line);border-radius:var(--r);padding:20px;backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);box-shadow:0 10px 30px #0006,inset 0 1px 0 #ffffff14}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.gifs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
+.gif{position:relative;aspect-ratio:1;border-radius:14px;overflow:hidden;border:2px solid transparent;background:#0006;cursor:pointer;transition:transform .2s,border-color .2s,box-shadow .2s}
+.gif:hover{transform:translateY(-2px)}
+.gif img{width:100%;height:100%;object-fit:contain;transition:transform .3s}
+.gif:hover img{transform:scale(1.03)}
+.gif.active{border-color:var(--accent);box-shadow:0 0 0 4px #ff7a5933}
+.gif span{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 6px;font-size:12px;background:linear-gradient(transparent,#000c);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gif button.del{position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:50%;border:0;background:#000a;color:#fff;font-size:16px;opacity:0;transition:opacity .2s,background .2s;cursor:pointer}
+.gif:hover .del,.gif:focus-within .del{opacity:1}
+.gif .del:hover{background:var(--bad)}
+.add{display:grid;place-items:center;aspect-ratio:1;border-radius:14px;border:2px dashed var(--line);color:var(--muted);cursor:pointer;transition:border-color .2s,color .2s,transform .2s;text-align:center;font-size:13px}
+.add:hover{border-color:var(--accent);color:var(--ink);transform:translateY(-2px)}
+.add b{display:block;font-size:30px;font-weight:300;line-height:1}
+.bar{height:6px;border-radius:3px;background:#ffffff14;overflow:hidden;margin-top:12px;display:none}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width .15s}
+.row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid #ffffff10}
+.row:first-of-type{border-top:0;padding-top:0}
+.row label{flex:1}
+.row output{min-width:64px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+input[type=range]{flex:1.4;accent-color:var(--accent);height:28px}
+.sw{position:relative;width:46px;height:26px;flex:none}
+.sw input{position:absolute;inset:0;opacity:0;cursor:pointer;margin:0}
+.sw i{position:absolute;inset:0;border-radius:13px;background:#ffffff22;transition:background .2s;pointer-events:none}
+.sw i::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s;box-shadow:0 2px 6px #0005}
+.sw input:checked+i{background:var(--accent)}
+.sw input:checked+i::after{transform:translateX(20px)}
+.sw input:focus-visible+i{outline:2px solid var(--accent-2);outline-offset:2px}
+.src{display:flex;align-items:center;gap:12px;padding:10px 12px;margin-bottom:8px;border-radius:12px;background:var(--glass);border:1px solid var(--line);cursor:grab;transition:transform .15s,background .2s,opacity .2s}
+.src:hover{background:var(--glass-2)}
+.src.drag{opacity:.4}
+.src .h{color:var(--muted);letter-spacing:-2px;user-select:none}
+.src .n{color:var(--muted);width:16px;font-variant-numeric:tabular-nums}
+.src .t{flex:1}
+.src.off .t{color:var(--muted);text-decoration:line-through}
+.mv{display:none;gap:4px}
+.mv button{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+.coarse{display:none}
+@media(pointer:coarse){.mv{display:flex}.src .h,.fine{display:none}.coarse{display:inline}}
+.btn{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:12px;border:0;font:inherit;font-weight:600;cursor:pointer;color:#1a0f0a;background:linear-gradient(135deg,var(--accent),var(--accent-2));transition:transform .15s,filter .2s}
+.btn:hover{transform:translateY(-1px);filter:brightness(1.08)}
+.btn:active{transform:translateY(1px) scale(.98)}
+.btn.ghost{background:var(--glass-2);color:var(--ink);border:1px solid var(--line)}
+.btn.danger{background:var(--bad);color:#fff}
+input[type=password],input[type=file]{width:100%;height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--line);background:#0005;color:var(--ink);font:inherit}
+input[type=file]{padding:5px 6px}
+input[type=file]::file-selector-button{height:30px;margin-right:10px;padding:0 12px;border-radius:8px;border:1px solid var(--line);background:var(--glass-2);color:var(--ink);font:inherit;cursor:pointer}
+.ota{display:grid;gap:10px}
+.muted{color:var(--muted);font-size:13px}
+dialog{border:1px solid var(--line);border-radius:var(--r);padding:22px;background:#141a2ef2;color:var(--ink);backdrop-filter:blur(20px);max-width:340px;width:calc(100% - 32px)}
+dialog::backdrop{background:#0009;backdrop-filter:blur(4px)}
+dialog[open]{animation:pop .2s ease-out}
+@keyframes pop{from{transform:scale(.95);opacity:0}}
+dialog p{margin:8px 0 18px;color:var(--muted)}
+dialog .acts{display:flex;justify-content:flex-end;gap:10px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;padding:12px 18px;border-radius:12px;background:#1d2440f2;border:1px solid var(--line);backdrop-filter:blur(12px);transition:all .25s;pointer-events:none;max-width:90vw}
+#toast.show{transform:translate(-50%,0);opacity:1}
+#toast.bad{border-color:var(--bad)}
+@media(prefers-reduced-motion:reduce){*,::before{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><i id="dot"></i>Music Frame</h1>
+    <span class="muted" id="free"></span>
+  </header>
+
+  <section class="card">
+    <h2>GIF <small>Bấm để chiếu</small></h2>
+    <div class="gifs" id="gifs">
+      <label class="add" for="file"><span><b>+</b>Thêm GIF</span></label>
+    </div>
+    <input id="file" type="file" accept="image/gif" multiple hidden>
+    <div class="bar" id="bar"><i></i></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Màn hình</h2>
+      <div class="row"><label for="bright">Độ sáng</label><input id="bright" type="range" min="5" max="100" step="5"><output id="brightV"></output></div>
+      <div class="row"><label for="music">Hiện bài đang phát</label><span class="sw"><input id="music" type="checkbox"><i></i></span></div>
+      <div class="row"><label for="word">Lời chạy theo từng chữ</label><span class="sw"><input id="word" type="checkbox"><i></i></span></div>
+      <div class="row"><label for="offset">Lệch lời</label><input id="offset" type="range" min="-2000" max="2000" step="100"><output id="offsetV"></output></div>
+    </section>
+
+    <section class="card">
+      <h2>Nguồn lời bài hát <small class="fine">Kéo để đổi thứ tự</small><small class="coarse">Dùng ↑ ↓ để đổi thứ tự</small></h2>
+      <div id="srcs"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Cập nhật firmware</h2>
+    <form class="ota" id="ota">
+      <input id="bin" type="file" accept=".bin" required aria-label="File firmware .bin">
+      <input id="pw" type="password" placeholder="Mật khẩu cập nhật" required autocomplete="current-password" aria-label="Mật khẩu cập nhật">
+      <div><button class="btn" type="submit">Nạp firmware</button></div>
+      <div class="bar" id="otaBar"><i></i></div>
+    </form>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <strong id="dlgT"></strong>
+  <p id="dlgP"></p>
+  <div class="acts"><button class="btn ghost" value="no" id="dlgNo">Huỷ</button><button class="btn danger" id="dlgOk">Xoá</button></div>
+</dialog>
+<div id="toast" role="status"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const NAMES={lrclib:"LRCLIB",netease:"NetEase",kugou:"Kugou",musixmatch:"Musixmatch"};
+let S={},timer;
+
+function toast(msg,bad){const t=$("#toast");t.textContent=msg;t.className="show"+(bad?" bad":"");clearTimeout(t._h);t._h=setTimeout(()=>t.className="",2600)}
+async function api(url,opt){const r=await fetch(url,opt);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.statusText);return j}
+function kb(n){return n>1048576?(n/1048576).toFixed(1)+" MB":Math.round(n/1024)+" KB"}
+
+function confirmDlg(title,text){return new Promise(res=>{const d=$("#dlg");$("#dlgT").textContent=title;$("#dlgP").textContent=text;
+  $("#dlgOk").onclick=()=>{d.close();res(true)};$("#dlgNo").onclick=()=>{d.close();res(false)};d.onclose=()=>res(false);d.showModal()})}
+
+async function loadGifs(){
+  const j=await api("/api/gifs");const box=$("#gifs");box.querySelectorAll(".gif").forEach(e=>e.remove());
+  $("#free").textContent="Còn trống "+kb(j.free);
+  for(const n of j.gifs){
+    const el=document.createElement("div");el.className="gif"+(n===j.active?" active":"");el.tabIndex=0;
+    el.innerHTML=`<img alt="" loading="lazy"><span></span><button class="del" aria-label="Xoá">×</button>`;
+    el.querySelector("img").src="/gifs/"+encodeURIComponent(n);el.querySelector("span").textContent=n;
+    el.onclick=e=>{if(!e.target.closest(".del"))save({gif:n}).then(loadGifs)};
+    el.onkeydown=e=>{if(e.key==="Enter")el.click()};
+    el.querySelector(".del").onclick=async()=>{if(await confirmDlg("Xoá "+n+"?","File sẽ bị xoá khỏi màn hình."))
+      api("/api/gifs?name="+encodeURIComponent(n),{method:"DELETE"}).then(loadGifs).catch(e=>toast(e.message,1))};
+    box.insertBefore(el,box.querySelector(".add"));
+  }
+}
+
+function upload(file){return new Promise((res,rej)=>{
+  if(file.size>2*1024*1024)return rej(new Error(file.name+": lớn hơn 2 MB"));
+  const x=new XMLHttpRequest(),f=new FormData(),bar=$("#bar");f.append("file",file);bar.style.display="block";
+  x.upload.onprogress=e=>bar.firstChild.style.width=(e.loaded/e.total*100)+"%";
+  x.onload=()=>{bar.style.display="none";bar.firstChild.style.width=0;
+    if(x.status<300)res();else rej(new Error(file.name+": "+((JSON.parse(x.responseText||"{}").error)||x.status)))};
+  x.onerror=()=>{bar.style.display="none";rej(new Error("Mất kết nối"))};
+  x.open("POST","/api/gifs");x.send(f)})}
+
+$("#file").onchange=async e=>{for(const f of e.target.files){try{await upload(f);toast("Đã thêm "+f.name)}catch(err){toast(err.message,1)}}e.target.value="";loadGifs()};
+
+async function save(patch){try{S=await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});render()}catch(e){toast(e.message,1)}}
+function saveSoon(patch){clearTimeout(timer);timer=setTimeout(()=>save(patch),300)}
+
+function render(){
+  $("#bright").value=S.brightness;$("#brightV").textContent=S.brightness+"%";
+  $("#music").checked=S.music_mode;$("#word").checked=S.word_sync;
+  $("#offset").value=S.offset_ms;$("#offsetV").textContent=(S.offset_ms>0?"+":"")+(S.offset_ms/1000).toFixed(1)+" s";
+  const box=$("#srcs");box.innerHTML="";
+  S.sources.forEach((s,i)=>{
+    const el=document.createElement("div");el.className="src"+(s.on?"":" off");el.draggable=true;el.dataset.i=i;
+    el.innerHTML=`<span class="h" aria-hidden="true">⋮⋮</span><span class="n">${i+1}</span><span class="t">${NAMES[s.id]}</span>
+      <span class="mv"><button aria-label="Lên">↑</button><button aria-label="Xuống">↓</button></span>
+      <span class="sw"><input type="checkbox" ${s.on?"checked":""} aria-label="Bật ${NAMES[s.id]}"><i></i></span>`;
+    el.querySelector("input").onchange=e=>{const src=S.sources.map(x=>({...x}));src[i].on=e.target.checked;save({sources:src})};
+    const [up,down]=el.querySelectorAll(".mv button");up.onclick=()=>move(i,i-1);down.onclick=()=>move(i,i+1);
+    el.ondragstart=e=>{el.classList.add("drag");e.dataTransfer.setData("text/plain",i)};
+    el.ondragend=()=>el.classList.remove("drag");
+    el.ondragover=e=>e.preventDefault();
+    el.ondrop=e=>{e.preventDefault();move(+e.dataTransfer.getData("text/plain"),i)};
+    box.appendChild(el)})
+}
+function move(from,to){if(to<0||to>=S.sources.length||from===to)return;const src=S.sources.map(x=>({...x}));src.splice(to,0,src.splice(from,1)[0]);save({sources:src})}
+
+$("#bright").oninput=e=>{$("#brightV").textContent=e.target.value+"%";saveSoon({brightness:+e.target.value})};
+$("#offset").oninput=e=>{const v=+e.target.value;$("#offsetV").textContent=(v>0?"+":"")+(v/1000).toFixed(1)+" s";saveSoon({offset_ms:v})};
+$("#music").onchange=e=>save({music_mode:e.target.checked});
+$("#word").onchange=e=>save({word_sync:e.target.checked});
+
+$("#ota").onsubmit=e=>{e.preventDefault();const file=$("#bin").files[0];if(!file)return;
+  const x=new XMLHttpRequest(),f=new FormData(),bar=$("#otaBar");f.append("firmware",file);bar.style.display="block";
+  x.upload.onprogress=ev=>bar.firstChild.style.width=(ev.loaded/ev.total*100)+"%";
+  x.onload=()=>{bar.style.display="none";if(x.status<300){toast("Đã nạp, màn hình đang khởi động lại");setTimeout(()=>location.reload(),8000)}
+    else toast(x.status===401?"Sai mật khẩu":"Lỗi: "+((JSON.parse(x.responseText||"{}").error)||x.status),1)};
+  x.onerror=()=>{bar.style.display="none";toast("Mất kết nối",1)};
+  x.open("POST","/update");x.setRequestHeader("X-OTA-Password",$("#pw").value);x.send(f)};
+
+async function poll(){try{await api("/api/gifs");$("#dot").className="on"}catch{$("#dot").className=""}}
+(async()=>{try{S=await api("/api/settings");render();await loadGifs();$("#dot").className="on"}catch(e){toast("Không kết nối được màn hình",1)}setInterval(poll,15000)})();
+</script>
+</body>
+</html>

@@ -7,7 +7,7 @@ import requests
 
 from ..model import Line, Lyrics
 from .lrc import parse_lrc
-from .wordsync import decode_krc, parse_krc, parse_richsync, parse_yrc
+from .wordsync import decode_krc, parse_krc, parse_richsync, parse_ttml, parse_yrc
 
 log = logging.getLogger("musicframe")
 UA = {"User-Agent": "esp32-music-frame/0.1"}
@@ -50,7 +50,7 @@ def lrclib(title: str, artist: str, duration_ms: int) -> Lyrics | None:
         hit = next(iter(_closest(synced, lambda h: float(h.get("duration") or 0) * 1000, duration_ms)), None)
     if not hit:
         return None
-    return Lyrics(parse_lrc(hit["syncedLyrics"]), False, "lrclib")
+    return Lyrics(parse_lrc(hit["syncedLyrics"]), False, "lrclib", int(float(hit.get("duration") or 0) * 1000))
 
 
 def netease(title: str, artist: str, duration_ms: int) -> Lyrics | None:
@@ -63,10 +63,10 @@ def netease(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     data = _get("https://music.163.com/api/song/lyric", params={"id": songs[0]["id"], "lv": 1, "yv": 1}).json()
     yrc = (data.get("yrc") or {}).get("lyric")
     if yrc and (lines := parse_yrc(yrc)):
-        return Lyrics(lines, True, "netease")
+        return Lyrics(lines, True, "netease", songs[0].get("duration", 0))
     lrc = (data.get("lrc") or {}).get("lyric")
     lines = parse_lrc(lrc) if lrc else []
-    return Lyrics(lines, False, "netease") if lines else None
+    return Lyrics(lines, False, "netease", songs[0].get("duration", 0)) if lines else None
 
 
 # Kugou's lyric host times out on https; lyrics are public text, so plain http is acceptable here.
@@ -82,7 +82,7 @@ def kugou(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     if not dl.get("content"):
         return None
     lines = parse_krc(decode_krc(dl["content"]))
-    return Lyrics(lines, True, "kugou") if lines else None
+    return Lyrics(lines, True, "kugou", c.get("duration", 0)) if lines else None
 
 
 class _Mxm:
@@ -125,11 +125,11 @@ def musixmatch(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     if track.get("has_richsync"):
         rs = _mxm.call("track.richsync.get", track_id=tid)
         if isinstance(rs, dict) and rs.get("richsync"):
-            return Lyrics(parse_richsync(rs["richsync"]["richsync_body"]), True, "musixmatch")
+            return Lyrics(parse_richsync(rs["richsync"]["richsync_body"]), True, "musixmatch", track.get("track_length", 0) * 1000)
     if track.get("has_subtitles"):
         st = _mxm.call("track.subtitle.get", track_id=tid, subtitle_format="lrc")
         if isinstance(st, dict) and st.get("subtitle"):
-            return Lyrics(parse_lrc(st["subtitle"]["subtitle_body"]), False, "musixmatch")
+            return Lyrics(parse_lrc(st["subtitle"]["subtitle_body"]), False, "musixmatch", track.get("track_length", 0) * 1000)
     return None
 
 
@@ -153,30 +153,74 @@ def ytmusic(title: str, artist: str, duration_ms: int) -> Lyrics | None:
         lid = _yt.get_watch_playlist(r["videoId"]).get("lyrics")
         ly = _yt.get_lyrics(lid, timestamps=True) if lid else None
         if ly and ly.get("hasTimestamps") and ly.get("lyrics"):
-            return Lyrics([Line(l.start_time, l.text) for l in ly["lyrics"]], False, "ytmusic")
+            return Lyrics([Line(l.start_time, l.text) for l in ly["lyrics"]], False, "ytmusic",
+                          (r.get("duration_seconds") or 0) * 1000)
     return None
 
 
-SOURCES: dict[str, Source] = {"ytmusic": ytmusic, "lrclib": lrclib, "netease": netease, "kugou": kugou, "musixmatch": musixmatch}
+LRCRED_UA = {"User-Agent": "esp32-music-frame/0.1 (+https://lrc.red credit shown on screen)"}
+
+
+def lrcred(title: str, artist: str, duration_ms: int) -> Lyrics | None:
+    """Apple Music sheets through lrc.red (TTML, often timed word by word). Its terms ask for a credit, drawn on screen."""
+    params = {"track": title, "artist": artist}
+    if duration_ms > 0:
+        params["duration"] = round(duration_ms / 1000)
+    try:
+        found = _get("https://lrc.red/api/v1", params=params, headers=LRCRED_UA).json().get("results") or []
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            return None
+        raise
+    found = [f for f in found if f.get("lyricsUrl", "").startswith("https://") and _same_song(title, f.get("track_name", ""))]
+    found = _closest(found, lambda f: (f.get("duration") or 0) * 1000, duration_ms)
+    found.sort(key=lambda f: f.get("timing_type") not in ("word", "syllable"))  # stable: word-timed first, then closest
+    for f in found[:2]:
+        lines, worded = parse_ttml(_get(f["lyricsUrl"], headers=LRCRED_UA).text)
+        if lines and f.get("timing_type") != "none":
+            return Lyrics(lines, worded, "lrcred", (f.get("duration") or 0) * 1000)
+    return None
+
+
+SOURCES: dict[str, Source] = {"ytmusic": ytmusic, "lrcred": lrcred, "lrclib": lrclib, "netease": netease, "kugou": kugou, "musixmatch": musixmatch}
+
+
+def _grade(ly: Lyrics, track_ms: int, prefer_word: bool) -> int:
+    """Kind of lyrics, best first (after Sonora): word-timed (when preferred) > line-timed > cut short."""
+    if track_ms >= 30000 and ly.lines and ly.lines[-1].start_ms < 0.6 * track_ms:
+        return 0  # stops well before the song does: probably a partial sheet
+    return 3 if prefer_word and ly.word_synced else 2
+
+
+def rank(hits: list[Lyrics], order: list[str], track_ms: int, prefer_word: bool) -> list[Lyrics]:
+    """Kind first, then the user's source order, then the closest recording length."""
+    place = {name: i for i, name in enumerate(order)}
+    return sorted(hits, key=lambda h: (-_grade(h, track_ms, prefer_word), place.get(h.source, len(order)),
+                                       abs(track_ms - h.duration_ms) if track_ms and h.duration_ms else 0))
 
 
 def fetch_lyrics(title: str, artist: str, duration_ms: int, order: list[str], prefer_word: bool,
                  sources: dict[str, Source] | None = None) -> Lyrics | None:
-    """Try sources in order. With prefer_word, a word-timed hit beats an earlier line-timed one."""
+    """Ask every enabled source at once (one slow source no longer holds up the rest) and keep the best hit."""
+    from concurrent.futures import ThreadPoolExecutor
+
     sources = SOURCES if sources is None else sources
-    fallback = None
-    for name in order:
-        fn = sources.get(name)
-        if not fn:
-            continue
+    names = [n for n in order if n in sources]
+
+    def ask(name: str) -> Lyrics | None:
         try:
-            got = fn(title, artist, duration_ms)
+            got = sources[name](title, artist, duration_ms)
         except Exception as e:  # unofficial APIs fail in many ways; never kill the app
             log.info("lyrics: %s failed (%s)", name, e.__class__.__name__)
-            continue
-        if not got or not got.lines:
-            continue
-        if not prefer_word or got.word_synced:
+            return None
+        if got and got.lines:
+            got.source = name
             return got
-        fallback = fallback or got
-    return fallback
+        return None
+
+    if not names:
+        return None
+    with ThreadPoolExecutor(max_workers=len(names)) as pool:
+        hits = [h for h in pool.map(ask, names) if h]
+    ranked = rank(hits, order, duration_ms, prefer_word)
+    return ranked[0] if ranked else None

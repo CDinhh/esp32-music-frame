@@ -132,7 +132,7 @@ dialog .acts{display:flex;justify-content:flex-end;gap:10px}
 
 <script>
 const $=s=>document.querySelector(s);
-const NAMES={ytmusic:"YouTube Music",lrclib:"LRCLIB",netease:"NetEase",kugou:"Kugou",musixmatch:"Musixmatch"};
+const NAMES={ytmusic:"YouTube Music",lrcred:"Apple Music (lrc.red)",lrclib:"LRCLIB",netease:"NetEase",kugou:"Kugou",musixmatch:"Musixmatch"};
 let S={},timer;
 
 function toast(msg,bad){const t=$("#toast");t.textContent=msg;t.className="show"+(bad?" bad":"");clearTimeout(t._h);t._h=setTimeout(()=>t.className="",2600)}

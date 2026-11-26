@@ -213,3 +213,51 @@ def test_kugou_rejects_other_version(monkeypatch):
     monkeypatch.setattr(sources, "_get", fake_get)
     assert sources.kugou("Chắc Ai Đó Sẽ Về", "Sơn Tùng M-TP", 262164) is None
     assert not any("download" in u for u in calls)  # never fetched the wrong lyrics
+
+
+TTML = ('<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>'
+        '<p begin="11.933" end="16.989"><span begin="11.933" end="12.343">Anh</span> <span begin="12.343" end="12.738">tìm</span>'
+        '<span ttm:role="x-bg" begin="12.5" end="13"><span begin="12.5" end="13">(ooh)</span></span></p>'
+        '<p begin="1:02.5" end="1:05">Dòng không có chữ</p></div></body></tt>')
+
+
+def test_parse_ttml_words_and_lines():
+    from musicframe.lyrics.wordsync import parse_ttml
+    lines, worded = parse_ttml(TTML)
+    assert worded and lines[0].start_ms == 11933 and lines[0].text == "Anh tìm"
+    assert [(w.start_ms, w.end_ms) for w in lines[0].words] == [(11933, 12343), (12343, 12738)]
+    assert lines[1].start_ms == 62500 and lines[1].text == "Dòng không có chữ" and lines[1].words is None
+
+
+def test_rank_like_sonora():
+    from musicframe.lyrics.sources import rank
+    full = [Line(i * 10000, "x") for i in range(25)]                   # runs to 240 s
+    word = Lyrics(full, True, "kugou", 262000)
+    line_exact = Lyrics(full, False, "ytmusic", 262000)
+    line_far = Lyrics(full, False, "ytmusic", 250000)
+    cut = Lyrics(full[:5], True, "lrcred", 262000)                      # stops at 40 s of a 262 s song
+    order = ["ytmusic", "lrcred", "kugou"]
+    assert rank([line_exact, word, cut], order, 262000, True)[0] is word          # word-timed wins when preferred
+    assert rank([word, line_exact], order, 262000, False)[0] is line_exact        # otherwise the user's order
+    assert rank([line_far, line_exact], order, 262000, False)[0] is line_exact    # then the closer length
+    assert rank([cut, line_exact], order, 262000, True)[0] is line_exact          # a cut-short sheet ranks last
+
+
+def test_lrcred_picks_word_timed_same_length(monkeypatch):
+    from musicframe.lyrics import sources
+
+    class R:
+        def __init__(self, data=None, text=""): self.data, self.text = data, text
+        def json(self): return self.data
+
+    def fake_get(url, **kw):
+        if "api/v1" in url:
+            return R({"results": [
+                {"track_name": "Chắc Ai Đó Sẽ Về (Sky Tour 2019)", "duration": 284, "timing_type": "word", "lyricsUrl": "https://lrc.red/s/live.ttml"},
+                {"track_name": "Chắc Ai Đó Sẽ Về", "duration": 262, "timing_type": "word", "lyricsUrl": "https://lrc.red/s/studio.ttml"}]})
+        assert url.endswith("studio.ttml")
+        return R(text=TTML)
+
+    monkeypatch.setattr(sources, "_get", fake_get)
+    ly = sources.lrcred("Chắc Ai Đó Sẽ Về", "Sơn Tùng M-TP", 262164)
+    assert ly.source == "lrcred" and ly.word_synced and ly.duration_ms == 262000

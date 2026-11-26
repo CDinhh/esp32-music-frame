@@ -68,3 +68,40 @@ def parse_richsync(json_str: str) -> list[Line]:
         if words:
             out.append(Line(int(ts * 1000), item.get("x", " ".join(w.text for w in words)), words))
     return out
+
+
+def _ttml_time(t: str) -> int:
+    """'11.933', '4:22.164' or '1:02:03.5' -> ms."""
+    secs = 0.0
+    for part in t.strip().rstrip("s").split(":"):
+        secs = secs * 60 + float(part)
+    return int(round(secs * 1000))
+
+
+def parse_ttml(text: str) -> tuple[list[Line], bool]:
+    """Apple-style TTML (lrc.red): <p begin> lines holding <span begin end> words. Returns (lines, word_timed).
+    Background-vocal spans (ttm:role) are left out so the main line reads cleanly."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(text)
+    tag = lambda el: el.tag.rsplit("}", 1)[-1]
+    out, worded = [], False
+    for p in root.iter():
+        if tag(p) != "p" or "begin" not in p.attrib:
+            continue
+        words: list[Word] = []
+        for sp in p:
+            if tag(sp) != "span" or any(k.endswith("role") for k in sp.attrib) or "begin" not in sp.attrib:
+                continue
+            # the space between two words lives in the tail of the first span
+            text_ = (sp.text or "") + (" " if sp.tail and not sp.tail.strip() else "")
+            words.append(Word(_ttml_time(sp.attrib["begin"]), _ttml_time(sp.attrib.get("end", sp.attrib["begin"])), text_))
+        if words:
+            worded = True
+            out.append(Line(words[0].start_ms, "".join(w.text for w in words).strip(), words))
+        else:
+            line_text = "".join(p.itertext()).strip()
+            if line_text:
+                out.append(Line(_ttml_time(p.attrib["begin"]), line_text))
+    out.sort(key=lambda l: l.start_ms)
+    return out, worded

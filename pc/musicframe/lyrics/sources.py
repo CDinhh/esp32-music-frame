@@ -158,7 +158,17 @@ def ytmusic(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     return None
 
 
-LRCRED_UA = {"User-Agent": "esp32-music-frame/0.1 (+https://lrc.red credit shown on screen)"}
+CONTACT_FILE = __import__("pathlib").Path(__file__).resolve().parents[2] / "contact.txt"  # pc/contact.txt, gitignored
+
+
+def lrcred_headers() -> dict:
+    """lrc.red's terms: name the app with a link and a contact email. Both live in pc/contact.txt
+    (line 1 link, line 2 email) so no address is committed; without the file the app name alone is sent."""
+    try:
+        link, email = [l.strip() for l in CONTACT_FILE.read_text(encoding="utf-8").splitlines() if l.strip()][:2]
+        return {"User-Agent": f"esp32-music-frame/0.1 (+{link}; {email})"}
+    except (OSError, ValueError):
+        return {"User-Agent": "esp32-music-frame/0.1"}
 
 
 def lrcred(title: str, artist: str, duration_ms: int) -> Lyrics | None:
@@ -167,7 +177,7 @@ def lrcred(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     if duration_ms > 0:
         params["duration"] = round(duration_ms / 1000)
     try:
-        found = _get("https://lrc.red/api/v1", params=params, headers=LRCRED_UA).json().get("results") or []
+        found = _get("https://lrc.red/api/v1", params=params, headers=lrcred_headers()).json().get("results") or []
     except requests.HTTPError as e:
         if e.response is not None and e.response.status_code == 404:
             return None
@@ -176,7 +186,7 @@ def lrcred(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     found = _closest(found, lambda f: (f.get("duration") or 0) * 1000, duration_ms)
     found.sort(key=lambda f: f.get("timing_type") not in ("word", "syllable"))  # stable: word-timed first, then closest
     for f in found[:2]:
-        lines, worded = parse_ttml(_get(f["lyricsUrl"], headers=LRCRED_UA).text)
+        lines, worded = parse_ttml(_get(f["lyricsUrl"], headers=lrcred_headers()).text)
         if lines and f.get("timing_type") != "none":
             return Lyrics(lines, worded, "lrcred", (f.get("duration") or 0) * 1000)
     return None

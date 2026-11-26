@@ -195,3 +195,21 @@ def test_ytmusic_picks_matching_title_and_length(monkeypatch):
     monkeypatch.setattr(sources, "_yt", FakeYT())
     ly = sources.ytmusic("Em Không", "Vu Thanh Van", 350621)
     assert ly.source == "ytmusic" and ly.lines[0].start_ms == 24280
+
+
+def test_kugou_rejects_other_version(monkeypatch):
+    from musicframe.lyrics import sources
+
+    class R:
+        def __init__(self, data): self.data = data
+        def json(self): return self.data
+
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append(url)
+        return R({"candidates": [{"id": 1, "accesskey": "k", "duration": 284682}]})  # Sky Tour live, 22 s longer
+
+    monkeypatch.setattr(sources, "_get", fake_get)
+    assert sources.kugou("Chắc Ai Đó Sẽ Về", "Sơn Tùng M-TP", 262164) is None
+    assert not any("download" in u for u in calls)  # never fetched the wrong lyrics

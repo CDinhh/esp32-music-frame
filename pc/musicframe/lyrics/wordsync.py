@@ -1,0 +1,70 @@
+"""Word-timed lyric formats: NetEase yrc, Kugou krc, Musixmatch richsync."""
+import base64
+import json
+import re
+import zlib
+
+from ..model import Line, Word
+
+_KRC_KEY = bytes([64, 71, 97, 119, 94, 50, 116, 71, 81, 54, 49, 45, 206, 210, 110, 105])
+_LINE = re.compile(r"^\[(\d+),(\d+)\](.*)$")
+
+
+def _line(start: int, words: list[Word]) -> Line:
+    return Line(start, "".join(w.text for w in words).strip(), words)
+
+
+def parse_yrc(text: str) -> list[Line]:
+    """'[1000,2000](1000,500,0)Hel(1500,500,0)lo' — word times are absolute ms."""
+    out = []
+    for raw in text.splitlines():
+        m = _LINE.match(raw.strip())
+        if not m:
+            continue  # JSON credit lines start with '{'
+        words = [Word(int(s), int(s) + int(d), w) for s, d, w in re.findall(r"\((\d+),(\d+),\d+\)([^(]*)", m.group(3))]
+        if words:
+            out.append(_line(int(m.group(1)), words))
+    return out
+
+
+def decode_krc(b64: str) -> str:
+    raw = base64.b64decode(b64)[4:]  # drop 'krc1'
+    return zlib.decompress(bytes(b ^ _KRC_KEY[i % 16] for i, b in enumerate(raw))).decode("utf-8")
+
+
+def parse_krc(text: str) -> list[Line]:
+    """'[2000,1000]<0,400,0>A<400,600,0>B' — word offsets are relative to the line start."""
+    out = []
+    for raw in text.splitlines():
+        m = _LINE.match(raw.strip())
+        if not m:
+            continue
+        start = int(m.group(1))
+        words = [Word(start + int(o), start + int(o) + int(d), w) for o, d, w in re.findall(r"<(\d+),(\d+),\d+>([^<]*)", m.group(3))]
+        if words:
+            out.append(_line(start, words))
+    return out
+
+
+def parse_richsync(json_str: str) -> list[Line]:
+    """Musixmatch: [{"ts":s,"te":s,"l":[{"c":chars,"o":offset_s}],"x":text}] — chars grouped into words on spaces."""
+    out = []
+    for item in json.loads(json_str):
+        ts, te = float(item["ts"]), float(item["te"])
+        parts = item.get("l", [])
+        words: list[Word] = []
+        cur = None
+        for i, p in enumerate(parts):
+            if p["c"].isspace():
+                cur = None
+                continue
+            start = int((ts + float(p["o"])) * 1000)
+            end = int((ts + float(parts[i + 1]["o"])) * 1000) if i + 1 < len(parts) else int(te * 1000)
+            if cur is None:
+                cur = Word(start, end, p["c"])
+                words.append(cur)
+            else:
+                cur.end_ms, cur.text = end, cur.text + p["c"]
+        if words:
+            out.append(Line(int(ts * 1000), item.get("x", " ".join(w.text for w in words)), words))
+    return out

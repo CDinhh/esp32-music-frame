@@ -19,7 +19,7 @@ The ESP32 libraries have paths longer than Windows' 260-char limit, so PlatformI
 subst P: D:\Github\esp32-music-frame\.platformio   # once per boot
 $env:PLATFORMIO_CORE_DIR = "P:\"
 cd firmware
-..\.venv\Scripts\pio run -e esp32s3                # real board, needs include/secrets.h
+..\.venv\Scripts\pio run -e esp32s3                # real board, reads ..\.env
 ```
 
 All settings live in one file: copy `.env.example` to `.env` at the repo root and fill WiFi, OTA password and the lrc.red contact. The firmware build and the PC app both read it.
@@ -42,7 +42,7 @@ Reads what Windows is playing (Spotify, YouTube in a browser, any player that sh
 ```powershell
 cd pc
 python -m venv .venv; .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m musicframe.main                       # or --host 192.168.1.50
+.venv\Scripts\python -m musicframe.main                       # finds musicframe.local by itself
 .venv\Scripts\python -m musicframe.main --host localhost:8180 # Wokwi in Cursor/VS Code
 .venv\Scripts\python -m musicframe.main --png now.png         # one frame, no screen needed
 .venv\Scripts\python -m pytest -q

@@ -3,20 +3,104 @@
   "author": "esp32-music-frame",
   "editor": "wokwi",
   "parts": [
-    { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": { "psramSize": "8", "psramType": "octal", "flashSize": "16" } },
-    { "type": "wokwi-ili9341", "id": "lcd", "top": -40, "left": 220, "attrs": { "flipHorizontal": "1" } }
+    {
+      "type": "board-esp32-s3-devkitc-1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {
+        "psramSize": "8",
+        "psramType": "octal",
+        "flashSize": "16"
+      }
+    },
+    {
+      "type": "wokwi-ili9341",
+      "id": "lcd",
+      "top": -340,
+      "left": -280,
+      "attrs": {
+        "flipHorizontal": "1"
+      }
+    }
   ],
   "connections": [
-    [ "esp:TX", "$serialMonitor:RX", "", [] ],
-    [ "esp:RX", "$serialMonitor:TX", "", [] ],
-    [ "lcd:GND", "esp:GND.1", "black", [] ],
-    [ "lcd:VCC", "esp:3V3.1", "red", [] ],
-    [ "lcd:SCK", "esp:12", "green", [] ],
-    [ "lcd:MOSI", "esp:11", "blue", [] ],
-    [ "lcd:RST", "esp:8", "orange", [] ],
-    [ "lcd:D/C", "esp:9", "purple", [] ],
-    [ "lcd:CS", "esp:10", "yellow", [] ],
-    [ "lcd:LED", "esp:7", "white", [] ]
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "lcd:VCC",
+      "esp:3V3.1",
+      "red",
+      [
+        "v81.8"
+      ]
+    ],
+    [
+      "lcd:GND",
+      "esp:GND.1",
+      "black",
+      [
+        "v283.4"
+      ]
+    ],
+    [
+      "lcd:CS",
+      "esp:10",
+      "gold",
+      [
+        "v225.8"
+      ]
+    ],
+    [
+      "lcd:RST",
+      "esp:8",
+      "orange",
+      [
+        "v187.4"
+      ]
+    ],
+    [
+      "lcd:D/C",
+      "esp:9",
+      "purple",
+      [
+        "v216.2"
+      ]
+    ],
+    [
+      "lcd:MOSI",
+      "esp:11",
+      "blue",
+      [
+        "v235.4"
+      ]
+    ],
+    [
+      "lcd:SCK",
+      "esp:12",
+      "green",
+      [
+        "v245.0"
+      ]
+    ],
+    [
+      "lcd:LED",
+      "esp:7",
+      "white",
+      [
+        "v139.4"
+      ]
+    ]
   ],
   "dependencies": {}
 }

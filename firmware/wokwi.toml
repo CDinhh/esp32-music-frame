@@ -1,0 +1,9 @@
+[wokwi]
+version = 1
+firmware = ".pio/build/wokwi/firmware-merged.bin"
+elf = ".pio/build/wokwi/firmware.elf"
+
+# open http://localhost:8180 on the PC to reach the simulated web server
+[[net.forward]]
+from = "localhost:8180"
+to = "target:80"

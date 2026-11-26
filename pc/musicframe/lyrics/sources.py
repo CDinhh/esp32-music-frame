@@ -158,17 +158,15 @@ def ytmusic(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     return None
 
 
-CONTACT_FILE = __import__("pathlib").Path(__file__).resolve().parents[2] / "contact.txt"  # pc/contact.txt, gitignored
-
-
 def lrcred_headers() -> dict:
-    """lrc.red's terms: name the app with a link and a contact email. Both live in pc/contact.txt
-    (line 1 link, line 2 email) so no address is committed; without the file the app name alone is sent."""
-    try:
-        link, email = [l.strip() for l in CONTACT_FILE.read_text(encoding="utf-8").splitlines() if l.strip()][:2]
-        return {"User-Agent": f"esp32-music-frame/0.1 (+{link}; {email})"}
-    except (OSError, ValueError):
-        return {"User-Agent": "esp32-music-frame/0.1"}
+    """lrc.red's terms: name the app with a link and a contact email (CONTACT_LINK / CONTACT_EMAIL in .env).
+    Without them only the app name is sent."""
+    from ..config import load
+
+    c = load()
+    if c.get("CONTACT_LINK") and c.get("CONTACT_EMAIL"):
+        return {"User-Agent": f"esp32-music-frame/0.1 (+{c['CONTACT_LINK']}; {c['CONTACT_EMAIL']})"}
+    return {"User-Agent": "esp32-music-frame/0.1"}
 
 
 def lrcred(title: str, artist: str, duration_ms: int) -> Lyrics | None:

@@ -11,7 +11,9 @@
 #ifdef SIM_WOKWI
 #define OTA_PASSWORD "sim"
 #else
-#include "secrets.h"
+#ifndef OTA_PASSWORD
+#error "OTA_PASSWORD comes from .env at the repo root (see .env.example)"
+#endif
 #endif
 
 extern const char index_html_start[] asm("_binary_src_index_html_start");

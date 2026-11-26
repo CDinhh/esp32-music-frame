@@ -22,7 +22,7 @@ cd firmware
 ..\.venv\Scripts\pio run -e esp32s3                # real board, needs include/secrets.h
 ```
 
-Copy `firmware/include/secrets.h.example` to `secrets.h` and fill WiFi + OTA password first.
+All settings live in one file: copy `.env.example` to `.env` at the repo root and fill WiFi, OTA password and the lrc.red contact. The firmware build and the PC app both read it.
 
 ## Simulator (Wokwi)
 

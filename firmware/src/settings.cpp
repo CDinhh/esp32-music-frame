@@ -32,12 +32,22 @@ void parseSources(const String& str, Settings& t) {
     }
     start = comma + 1;
   }
-  if (ids.size() == 4 && validSources(ids)) {
-    t.sourceOrder = tmp.sourceOrder;
-    t.sourceOn = tmp.sourceOn;
-  } else {
-    defaultSources(t);
+  if (ids.empty() || !validSources(ids)) return defaultSources(t);
+  // sources added in a newer firmware go first, switched on; the saved order follows
+  std::vector<String> order;
+  std::vector<bool> on;
+  for (auto id : SOURCE_IDS) {
+    bool known = false;
+    for (auto& s : ids) known |= s == id;
+    if (!known) {
+      order.push_back(id);
+      on.push_back(true);
+    }
   }
+  order.insert(order.end(), tmp.sourceOrder.begin(), tmp.sourceOrder.end());
+  on.insert(on.end(), tmp.sourceOn.begin(), tmp.sourceOn.end());
+  t.sourceOrder = order;
+  t.sourceOn = on;
 }
 
 String joinSources(const Settings& t) {
@@ -114,7 +124,7 @@ bool settingsFromJson(JsonObjectConst in) {
       t.sourceOrder.push_back(id);
       t.sourceOn.push_back(o["on"] | true);
     }
-    if (ids.size() != 4 || !validSources(ids)) return false;
+    if (ids.size() != SOURCE_COUNT || !validSources(ids)) return false;
   }
   s = t;
   return true;

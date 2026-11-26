@@ -166,4 +166,32 @@ def test_lrclib_falls_back_to_search_with_same_length(monkeypatch):
     monkeypatch.setattr(sources, "_get", fake_get)
     ly = sources.lrclib("Em Không", "Vu Thanh Van", 350621)
     assert ly.lines[0].text == "right version"
-    assert sources.lrclib("Em Không", "Vu Thanh Van", 400000) is None  # nothing within 3 s
+    assert sources.lrclib("Em Không", "Vu Thanh Van", 500000) is None  # far longer: lyrics would not follow
+
+
+def test_fits_allows_longer_track_with_outro_only():
+    from musicframe.lyrics.sources import fits
+    assert fits(317000, 350621)        # MV with an extra ending (the 5:17 vs 5:50 case)
+    assert fits(351000, 350621)        # same length
+    assert not fits(360000, 350621)    # lyrics recording longer than the track
+    assert not fits(200000, 350621)    # a different edit
+    assert fits(123, 0)                # unknown track length
+
+
+def test_ytmusic_picks_matching_title_and_length(monkeypatch):
+    from types import SimpleNamespace as NS
+    from musicframe.lyrics import sources
+
+    class FakeYT:
+        def search(self, q, filter, limit):
+            return [{"title": "MISSING YOU", "videoId": "x", "duration_seconds": 244},
+                    {"title": "Em Không", "videoId": "song", "duration_seconds": 317}]
+        def get_watch_playlist(self, vid):
+            return {"lyrics": "L-" + vid}
+        def get_lyrics(self, lid, timestamps):
+            assert lid == "L-song"
+            return {"hasTimestamps": True, "lyrics": [NS(start_time=24280, text="Dường như em đã quên")]}
+
+    monkeypatch.setattr(sources, "_yt", FakeYT())
+    ly = sources.ytmusic("Em Không", "Vu Thanh Van", 350621)
+    assert ly.source == "ytmusic" and ly.lines[0].start_ms == 24280

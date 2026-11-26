@@ -13,7 +13,7 @@ static bool apply(const char* json) {
 
 void test_defaults_after_empty_nvs() {
   loadSettings();
-  TEST_ASSERT_EQUAL(4, (int)settings().sourceOrder.size());
+  TEST_ASSERT_EQUAL((int)SOURCE_COUNT, (int)settings().sourceOrder.size());
 }
 
 void test_partial_update_and_clamp() {
@@ -31,7 +31,7 @@ void test_rejects_bad_input_atomically() {
 }
 
 void test_sources_roundtrip_through_nvs() {
-  TEST_ASSERT_TRUE(apply(R"({"sources":[{"id":"kugou","on":true},{"id":"lrclib","on":false},{"id":"netease","on":true},{"id":"musixmatch","on":true}]})"));
+  TEST_ASSERT_TRUE(apply(R"({"sources":[{"id":"kugou","on":true},{"id":"lrclib","on":false},{"id":"netease","on":true},{"id":"musixmatch","on":true},{"id":"ytmusic","on":false}]})"));
   saveSettings();
   settings().sourceOrder.clear();
   loadSettings();
@@ -42,6 +42,18 @@ void test_sources_roundtrip_through_nvs() {
   TEST_ASSERT_EQUAL_STRING(R"(["kugou","netease","musixmatch"])", out.c_str());
 }
 
+void test_old_saved_order_gets_new_source_first() {
+  Preferences p;
+  p.begin("mf", false);
+  p.putString("src", "kugou:1,lrclib:0,netease:1,musixmatch:1");  // saved by the 4-source firmware
+  p.end();
+  loadSettings();
+  TEST_ASSERT_EQUAL((int)SOURCE_COUNT, (int)settings().sourceOrder.size());
+  TEST_ASSERT_EQUAL_STRING("ytmusic", settings().sourceOrder[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("kugou", settings().sourceOrder[1].c_str());
+  TEST_ASSERT_FALSE(settings().sourceOn[2]);  // lrclib stays off
+}
+
 void setup() {
   delay(500);
   UNITY_BEGIN();
@@ -49,6 +61,7 @@ void setup() {
   RUN_TEST(test_partial_update_and_clamp);
   RUN_TEST(test_rejects_bad_input_atomically);
   RUN_TEST(test_sources_roundtrip_through_nvs);
+  RUN_TEST(test_old_saved_order_gets_new_source_first);
   UNITY_END();
 }
 

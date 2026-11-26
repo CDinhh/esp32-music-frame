@@ -3,11 +3,7 @@
 
 namespace {
 class LGFX : public lgfx::LGFX_Device {
-#ifdef SIM_WOKWI
-  lgfx::Panel_ILI9341 panel;
-#else
-  lgfx::Panel_ST7789 panel;
-#endif
+  lgfx::Panel_ST7789 panel;  // also drives Wokwi's ILI9341 part (same command set)
   lgfx::Bus_SPI bus;
   lgfx::Light_PWM light;
 
@@ -56,7 +52,7 @@ lgfx::LGFX_Device& display() { return lcd; }
 
 void displayBegin() {
   lcd.init();
-  lcd.setRotation(0);
+  lcd.setRotation(0);  // Wokwi mirroring is fixed in diagram.json (flipHorizontal)
   lcd.fillScreen(TFT_BLACK);
 }
 

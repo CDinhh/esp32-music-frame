@@ -4,7 +4,7 @@
   "editor": "wokwi",
   "parts": [
     { "type": "board-esp32-s3-devkitc-1", "id": "esp", "top": 0, "left": 0, "attrs": { "psramSize": "8", "psramType": "octal", "flashSize": "16" } },
-    { "type": "wokwi-ili9341", "id": "lcd", "top": -40, "left": 220, "attrs": {} }
+    { "type": "wokwi-ili9341", "id": "lcd", "top": -40, "left": 220, "attrs": { "flipHorizontal": "1" } }
   ],
   "connections": [
     [ "esp:TX", "$serialMonitor:RX", "", [] ],

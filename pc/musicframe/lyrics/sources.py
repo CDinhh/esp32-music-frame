@@ -73,8 +73,8 @@ def netease(title: str, artist: str, duration_ms: int) -> Lyrics | None:
 def kugou(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     found = _get("http://lyrics.kugou.com/search", params={"ver": 1, "man": "yes", "client": "pc",
                                                              "keyword": f"{artist} - {title}", "duration": duration_ms}).json()
-    cands = found.get("candidates") or []
-    if not cands:
+    cands = _closest(found.get("candidates") or [], lambda c: c.get("duration", 0), duration_ms)
+    if not cands:  # e.g. only a live version 20 s longer: its timing would lag
         return None
     c = cands[0]
     dl = _get("http://lyrics.kugou.com/download", params={"ver": 1, "client": "pc", "id": c["id"],
@@ -119,7 +119,7 @@ _mxm = _Mxm()
 def musixmatch(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     body = _mxm.call("matcher.track.get", q_track=title, q_artist=artist)
     track = (body or {}).get("track") if isinstance(body, dict) else None
-    if not track:
+    if not track or not fits(track.get("track_length", 0) * 1000, duration_ms):
         return None
     tid = track["track_id"]
     if track.get("has_richsync"):

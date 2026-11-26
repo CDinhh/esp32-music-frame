@@ -43,6 +43,7 @@ async def run(host: str):
     pending: dict[tuple, Future] = {}
     retry_at: dict[tuple, float] = {}
     np, read_at = None, 0.0
+    lag = 0.1  # seconds from send to pixels on screen, smoothed
     log.info("sending to http://%s/frame", host)
     while True:
         now = time.time()
@@ -70,15 +71,19 @@ async def run(host: str):
             if ly is None:
                 retry_at[key] = now + RETRY_S
             log.info("lyrics: %s", f"{ly.source} ({'word' if ly.word_synced else 'line'})" if ly else "none")
-        jpeg, wait = frame_for(np, now, reply, cache.get(key))
+        # draw the moment the frame will actually appear: one send (upload + ESP32 decode) ahead
+        jpeg, wait = frame_for(np, now + lag, reply, cache.get(key))
+        sent_at = time.time()
         got = client.send(jpeg)
+        took = time.time() - sent_at
         if got is None:
             await asyncio.sleep(2)
             continue
+        lag = 0.7 * lag + 0.3 * min(took, 1.0)
         reply = got
         if not reply.get("music_mode", True):
             wait = 2.0  # screen ignores frames; keep checking in case it is turned back on
-        await asyncio.sleep(wait)
+        await asyncio.sleep(max(wait - took, 0.02))  # the send already used part of the wait
 
 
 async def one_png(path: str):

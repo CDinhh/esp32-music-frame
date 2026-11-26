@@ -17,6 +17,7 @@ from .render import render_lyrics
 
 log = logging.getLogger("musicframe")
 LINE_FPS_S, WORD_FPS_S = 1.0, 0.125
+RETRY_S = 120  # look for lyrics again after a miss
 
 
 def frame_for(np, now, reply, lyrics) -> tuple[bytes, float]:
@@ -40,6 +41,7 @@ async def run(host: str):
     pool = ThreadPoolExecutor(max_workers=2)
     cache: dict[tuple, object] = {}
     pending: dict[tuple, Future] = {}
+    retry_at: dict[tuple, float] = {}
     np, read_at = None, 0.0
     log.info("sending to http://%s/frame", host)
     while True:
@@ -57,12 +59,16 @@ async def run(host: str):
         title, artist = clean_title(np.title, np.artist)
         np.title, np.artist = title, artist  # show the cleaned name on screen too
         key = (title, artist, tuple(reply.get("sources", [])), bool(reply.get("word_sync")))
+        if key in retry_at and now >= retry_at[key]:  # a source may have timed out: look again
+            del cache[key], retry_at[key]
         if key not in cache and key not in pending:
             log.info("now playing: %s - %s", artist, title)
             pending[key] = pool.submit(fetch_lyrics, title, artist, np.duration_ms, list(key[2]), key[3])
         if key in pending and pending[key].done():
             cache[key] = pending.pop(key).result()
             ly = cache[key]
+            if ly is None:
+                retry_at[key] = now + RETRY_S
             log.info("lyrics: %s", f"{ly.source} ({'word' if ly.word_synced else 'line'})" if ly else "none")
         jpeg, wait = frame_for(np, now, reply, cache.get(key))
         got = client.send(jpeg)

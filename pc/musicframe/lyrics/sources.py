@@ -21,6 +21,11 @@ def _get(url: str, **kw) -> requests.Response:
     return r
 
 
+def _same_length(seconds, duration_ms: int) -> bool:
+    """Timed lyrics only fit a recording of the same length (an MV with an intro would drift)."""
+    return duration_ms <= 0 or seconds is None or abs(float(seconds) * 1000 - duration_ms) <= 3000
+
+
 def lrclib(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     params = {"track_name": title, "artist_name": artist}
     if duration_ms > 0:
@@ -28,9 +33,11 @@ def lrclib(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     try:
         hit = _get("https://lrclib.net/api/get", params=params).json()
     except requests.HTTPError:
+        hit = None
+    if not hit or not hit.get("syncedLyrics"):  # exact match missing or plain-text only: try other uploads
         hits = _get("https://lrclib.net/api/search", params={"q": f"{artist} {title}".strip()}).json()
-        hit = next((h for h in hits if h.get("syncedLyrics")), None)
-    if not hit or not hit.get("syncedLyrics"):
+        hit = next((h for h in hits if h.get("syncedLyrics") and _same_length(h.get("duration"), duration_ms)), None)
+    if not hit:
         return None
     return Lyrics(parse_lrc(hit["syncedLyrics"]), False, "lrclib")
 

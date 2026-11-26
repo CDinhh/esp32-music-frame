@@ -37,7 +37,8 @@ def frame_for(np, now, reply, lyrics) -> tuple[bytes, float]:
 
 async def run(host: str):
     client = FrameClient(host)
-    reply = {"offset_ms": 0, "sources": list(SOURCES), "word_sync": False, "music_mode": True}
+    reply = client.settings() or {"offset_ms": 0, "sources": list(SOURCES), "word_sync": False, "music_mode": True}
+    app = ""  # media app being shown; stay with it while it plays
     pool = ThreadPoolExecutor(max_workers=2)
     cache: dict[tuple, object] = {}
     pending: dict[tuple, Future] = {}
@@ -49,7 +50,9 @@ async def run(host: str):
         now = time.time()
         if now - read_at >= 1.0:
             try:
-                np = await read_now_playing()
+                np = await read_now_playing(stick_to=app)
+                if np and np.playing:
+                    app = np.app
             except OSError as e:
                 log.warning("media session: %s", e)
                 np = None

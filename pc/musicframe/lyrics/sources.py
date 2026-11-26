@@ -5,7 +5,7 @@ from typing import Callable
 
 import requests
 
-from ..model import Lyrics
+from ..model import Line, Lyrics
 from .lrc import parse_lrc
 from .wordsync import decode_krc, parse_krc, parse_richsync, parse_yrc
 
@@ -21,9 +21,19 @@ def _get(url: str, **kw) -> requests.Response:
     return r
 
 
-def _same_length(seconds, duration_ms: int) -> bool:
-    """Timed lyrics only fit a recording of the same length (an MV with an intro would drift)."""
-    return duration_ms <= 0 or seconds is None or abs(float(seconds) * 1000 - duration_ms) <= 3000
+def fits(candidate_ms: float, track_ms: int) -> bool:
+    """Can timed lyrics of a recording this long follow the track that is playing?
+    Equal length (+-3 s), or a shorter recording when the track only adds an ending (MV outros, up to ~15 %)."""
+    if track_ms <= 0 or not candidate_ms:
+        return True
+    extra = track_ms - candidate_ms
+    return -3000 <= extra <= max(3000, 0.15 * track_ms)
+
+
+def _closest(items, key_ms, track_ms):
+    """Items whose length fits, closest first."""
+    ok = [i for i in items if fits(key_ms(i), track_ms)]
+    return sorted(ok, key=lambda i: abs(track_ms - key_ms(i))) if track_ms > 0 else ok
 
 
 def lrclib(title: str, artist: str, duration_ms: int) -> Lyrics | None:
@@ -36,7 +46,8 @@ def lrclib(title: str, artist: str, duration_ms: int) -> Lyrics | None:
         hit = None
     if not hit or not hit.get("syncedLyrics"):  # exact match missing or plain-text only: try other uploads
         hits = _get("https://lrclib.net/api/search", params={"q": f"{artist} {title}".strip()}).json()
-        hit = next((h for h in hits if h.get("syncedLyrics") and _same_length(h.get("duration"), duration_ms)), None)
+        synced = [h for h in hits if h.get("syncedLyrics")]
+        hit = next(iter(_closest(synced, lambda h: float(h.get("duration") or 0) * 1000, duration_ms)), None)
     if not hit:
         return None
     return Lyrics(parse_lrc(hit["syncedLyrics"]), False, "lrclib")
@@ -46,7 +57,7 @@ def netease(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     songs = _get("https://music.163.com/api/search/get", params={"s": f"{title} {artist}", "type": 1, "limit": 5}).json()
     songs = (songs.get("result") or {}).get("songs") or []
     if duration_ms > 0:
-        songs = [s for s in songs if abs(s.get("duration", 0) - duration_ms) <= 3000]
+        songs = _closest(songs, lambda s: s.get("duration", 0), duration_ms)
     if not songs:
         return None
     data = _get("https://music.163.com/api/song/lyric", params={"id": songs[0]["id"], "lv": 1, "yv": 1}).json()
@@ -122,7 +133,31 @@ def musixmatch(title: str, artist: str, duration_ms: int) -> Lyrics | None:
     return None
 
 
-SOURCES: dict[str, Source] = {"lrclib": lrclib, "netease": netease, "kugou": kugou, "musixmatch": musixmatch}
+_yt = None
+
+
+def _same_song(a: str, b: str) -> bool:
+    a, b = a.casefold().strip(), b.casefold().strip()
+    return bool(a) and (a in b or b in a)
+
+
+def ytmusic(title: str, artist: str, duration_ms: int) -> Lyrics | None:
+    """YouTube Music's own timed lyrics (LyricFind / Musixmatch behind it); no sign-in needed."""
+    global _yt
+    from ytmusicapi import YTMusic
+
+    _yt = _yt or YTMusic()
+    found = [r for r in _yt.search(f"{title} {artist}", filter="songs", limit=8)
+             if r.get("videoId") and _same_song(title, r.get("title", ""))]
+    for r in _closest(found, lambda r: (r.get("duration_seconds") or 0) * 1000, duration_ms)[:2]:
+        lid = _yt.get_watch_playlist(r["videoId"]).get("lyrics")
+        ly = _yt.get_lyrics(lid, timestamps=True) if lid else None
+        if ly and ly.get("hasTimestamps") and ly.get("lyrics"):
+            return Lyrics([Line(l.start_time, l.text) for l in ly["lyrics"]], False, "ytmusic")
+    return None
+
+
+SOURCES: dict[str, Source] = {"ytmusic": ytmusic, "lrclib": lrclib, "netease": netease, "kugou": kugou, "musixmatch": musixmatch}
 
 
 def fetch_lyrics(title: str, artist: str, duration_ms: int, order: list[str], prefer_word: bool,

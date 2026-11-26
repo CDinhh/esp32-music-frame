@@ -1,0 +1,7 @@
+winrt-runtime
+winrt-Windows.Foundation
+winrt-Windows.Media.Control
+winrt-Windows.Storage.Streams
+Pillow
+requests
+pytest

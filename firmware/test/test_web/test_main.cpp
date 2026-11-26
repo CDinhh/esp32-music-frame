@@ -7,6 +7,7 @@
 #include "../../src/gif_player.cpp"
 #include "../../src/settings.cpp"
 #include "../../src/web.cpp"
+#include "frame_jpg.h"
 
 static const char* BASE = "http://127.0.0.1";
 // 1x1 GIF89a
@@ -106,6 +107,11 @@ void test_frame_endpoint() {
   TEST_ASSERT_TRUE(musicActive());
 }
 
+void test_real_frame_from_pc_app() {  // left on screen for the screenshot check
+  Resp r = req("POST", "/frame", FRAME_JPG, sizeof(FRAME_JPG), "image/jpeg");
+  TEST_ASSERT_EQUAL(200, r.code);
+}
+
 void test_ota_needs_password() {
   uint8_t junk[64] = {0xE9};
   TEST_ASSERT_EQUAL(401, multipart("/update", "firmware", "fw.bin", junk, sizeof(junk), "X-OTA-Password", "wrong").code);
@@ -124,6 +130,7 @@ static void runTests(void*) {
   RUN_TEST(test_select_and_delete_active_falls_back);
   RUN_TEST(test_frame_endpoint);
   RUN_TEST(test_ota_needs_password);
+  RUN_TEST(test_real_frame_from_pc_app);
   UNITY_END();
   vTaskDelete(nullptr);
 }

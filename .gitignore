@@ -3,7 +3,6 @@
 .venv/
 __pycache__/
 *.pyc
-firmware/include/secrets.h
 firmware/data/
 .tools/
-pc/contact.txt
+.env

@@ -11,7 +11,9 @@
 #define WIFI_SSID "Wokwi-GUEST"
 #define WIFI_PASS ""
 #else
-#include "secrets.h"
+#ifndef WIFI_SSID
+#error "WiFi settings come from .env at the repo root (see .env.example)"
+#endif
 #endif
 
 namespace {

@@ -277,3 +277,12 @@ def test_pick_session_sticks_to_playing_app():
     paused = sess("sonora.exe", False)
     assert pick_session([paused, browser], paused, "sonora.exe") is browser   # chosen app stopped: follow what plays
     assert pick_session([paused], paused, "sonora.exe") is paused             # nothing plays: report the paused one
+
+
+def test_config_reads_env(tmp_path):
+    from musicframe.config import load
+    f = tmp_path / ".env"
+    f.write_text('# comment\nSCREEN_HOST=192.168.1.5\nWIFI_PASS="p=a#ss"\n\nBROKEN\n', encoding="utf-8")
+    c = load(f)
+    assert c["SCREEN_HOST"] == "192.168.1.5" and c["WIFI_PASS"] == "p=a#ss" and "BROKEN" not in c
+    assert load(tmp_path / "missing.env") == {}

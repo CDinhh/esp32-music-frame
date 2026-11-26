@@ -1,4 +1,6 @@
+import ipaddress
 import logging
+import socket
 
 import requests
 
@@ -9,9 +11,26 @@ class FrameClient:
     """POSTs JPEG frames to the screen; returns its reply (settings) or None when unreachable."""
 
     def __init__(self, host: str):
-        self.url = f"http://{host}/frame"
+        self.host = host
         self.session = requests.Session()
         self._down = False
+        self.url = ""
+        self.resolve()
+
+    def resolve(self) -> None:
+        """Turn a name like musicframe.local into its current IP once (a .local lookup on Windows
+        can take seconds, too slow per frame). Called again whenever the screen stops answering,
+        so a new IP from the router is picked up by itself."""
+        ip = self.host
+        try:
+            ipaddress.ip_address(self.host.split(":")[0])
+        except ValueError:
+            try:
+                ip = socket.getaddrinfo(self.host, 80, socket.AF_INET)[0][4][0]
+                log.info("screen %s is at %s", self.host, ip)
+            except OSError:
+                pass  # keep the name; the next failure retries
+        self.url = f"http://{ip}/frame"
 
     def settings(self) -> dict | None:
         """The screen's settings in the same shape a /frame reply has, so the first lyric lookup
@@ -32,6 +51,7 @@ class FrameClient:
             if not self._down:
                 log.warning("screen unreachable at %s (%s); retrying", self.url, e.__class__.__name__)
             self._down = True
+            self.resolve()  # its IP may have changed
             return None
         if self._down:
             log.info("screen back online")

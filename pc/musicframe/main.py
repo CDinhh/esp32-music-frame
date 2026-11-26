@@ -9,6 +9,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from .clean import clean_title
+from .config import load as load_config
 from .client import FrameClient
 from .lyrics.lrc import line_index
 from .lyrics.sources import SOURCES, fetch_lyrics
@@ -104,7 +105,8 @@ async def one_png(path: str):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="musicframe.local", help="screen address, e.g. 192.168.1.50")
+    ap.add_argument("--host", default=load_config().get("SCREEN_HOST") or "musicframe.local",
+                    help="screen name or IP (default musicframe.local, found automatically; SCREEN_HOST in .env overrides)")
     ap.add_argument("--png", help="write one frame of what is playing now and exit")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")

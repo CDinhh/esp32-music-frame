@@ -43,6 +43,9 @@ void showStatus(const String& a, const String& b) {
 
 void setup() {
   Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT
+  Serial.setTxTimeoutMs(0);  // never block when no console is reading
+#endif
   displayBegin();
   loadSettings();
   setBacklight(settings().brightness);

@@ -6,3 +6,4 @@ __pycache__/
 firmware/include/secrets.h
 firmware/data/
 .tools/
+pc/contact.txt

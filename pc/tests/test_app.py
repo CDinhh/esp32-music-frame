@@ -261,3 +261,19 @@ def test_lrcred_picks_word_timed_same_length(monkeypatch):
     monkeypatch.setattr(sources, "_get", fake_get)
     ly = sources.lrcred("Chắc Ai Đó Sẽ Về", "Sơn Tùng M-TP", 262164)
     assert ly.source == "lrcred" and ly.word_synced and ly.duration_ms == 262000
+
+
+def test_pick_session_sticks_to_playing_app():
+    from types import SimpleNamespace as NS
+    from musicframe.media import Status, pick_session
+
+    def sess(app, playing):
+        st = Status.PLAYING if playing else Status.PAUSED
+        return NS(source_app_user_model_id=app, get_playback_info=lambda: NS(playback_status=st))
+
+    sonora, browser = sess("sonora.exe", True), sess("Helium", True)
+    assert pick_session([sonora, browser], browser, "sonora.exe") is sonora   # hover preview grabbed "current"
+    assert pick_session([sonora, browser], browser, "") is browser            # nothing chosen yet: Windows' pick
+    paused = sess("sonora.exe", False)
+    assert pick_session([paused, browser], paused, "sonora.exe") is browser   # chosen app stopped: follow what plays
+    assert pick_session([paused], paused, "sonora.exe") is paused             # nothing plays: report the paused one

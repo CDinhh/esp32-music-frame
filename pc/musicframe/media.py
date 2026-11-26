@@ -25,11 +25,25 @@ async def _read_cover(ref) -> bytes | None:
         return None
 
 
-async def read_now_playing(with_cover: bool = True) -> NowPlaying | None:
+def pick_session(sessions: list, current, stick_to: str):
+    """The session to show. Windows' "current" session jumps to whichever app touched media last
+    (a browser previewing a video on hover), so stay with `stick_to` while it plays, else take a playing one."""
+    def playing(s):
+        return s.get_playback_info().playback_status == Status.PLAYING
+
+    for s in sessions:
+        if stick_to and s.source_app_user_model_id == stick_to and playing(s):
+            return s
+    if current is not None and playing(current):
+        return current
+    return next((s for s in sessions if playing(s)), current)
+
+
+async def read_now_playing(with_cover: bool = True, stick_to: str = "") -> NowPlaying | None:
     global _manager
     if _manager is None:
         _manager = await Manager.request_async()
-    s = _manager.get_current_session()
+    s = pick_session(list(_manager.get_sessions()), _manager.get_current_session(), stick_to)
     if s is None:
         return None
     props = await s.try_get_media_properties_async()

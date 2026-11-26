@@ -148,3 +148,22 @@ def test_frame_timing_line_vs_word():
     assert abs(wait - 0.3) < 0.01  # wakes when the next line starts
     _, wait = frame_for(np, np.updated_at, {"word_sync": True}, ly)
     assert wait == 0.125
+
+
+def test_lrclib_falls_back_to_search_with_same_length(monkeypatch):
+    from musicframe.lyrics import sources
+
+    class R:
+        def __init__(self, data): self.data = data
+        def json(self): return self.data
+
+    def fake_get(url, **kw):
+        if url.endswith("/get"):  # exact match exists but is plain text only
+            return R({"duration": 351, "syncedLyrics": None, "plainLyrics": "x"})
+        return R([{"duration": 317, "syncedLyrics": "[00:01.00]short version"},
+                  {"duration": 350.2, "syncedLyrics": "[00:01.00]right version"}])
+
+    monkeypatch.setattr(sources, "_get", fake_get)
+    ly = sources.lrclib("Em Không", "Vu Thanh Van", 350621)
+    assert ly.lines[0].text == "right version"
+    assert sources.lrclib("Em Không", "Vu Thanh Van", 400000) is None  # nothing within 3 s

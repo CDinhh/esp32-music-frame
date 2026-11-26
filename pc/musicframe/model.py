@@ -20,6 +20,7 @@ class Lyrics:
     lines: list[Line]
     word_synced: bool
     source: str
+    duration_ms: int = 0  # length of the recording these lyrics were timed to, 0 if unknown
 
 
 @dataclass

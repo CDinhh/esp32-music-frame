@@ -31,7 +31,7 @@ void test_rejects_bad_input_atomically() {
 }
 
 void test_sources_roundtrip_through_nvs() {
-  TEST_ASSERT_TRUE(apply(R"({"sources":[{"id":"kugou","on":true},{"id":"lrclib","on":false},{"id":"netease","on":true},{"id":"musixmatch","on":true},{"id":"ytmusic","on":false}]})"));
+  TEST_ASSERT_TRUE(apply(R"({"sources":[{"id":"kugou","on":true},{"id":"lrclib","on":false},{"id":"netease","on":true},{"id":"musixmatch","on":true},{"id":"ytmusic","on":false},{"id":"lrcred","on":true}]})"));
   saveSettings();
   settings().sourceOrder.clear();
   loadSettings();
@@ -39,7 +39,7 @@ void test_sources_roundtrip_through_nvs() {
   enabledSources(d.to<JsonArray>());
   String out;
   serializeJson(d, out);
-  TEST_ASSERT_EQUAL_STRING(R"(["kugou","netease","musixmatch"])", out.c_str());
+  TEST_ASSERT_EQUAL_STRING(R"(["kugou","netease","musixmatch","lrcred"])", out.c_str());
 }
 
 void test_old_saved_order_gets_new_source_first() {
@@ -50,8 +50,9 @@ void test_old_saved_order_gets_new_source_first() {
   loadSettings();
   TEST_ASSERT_EQUAL((int)SOURCE_COUNT, (int)settings().sourceOrder.size());
   TEST_ASSERT_EQUAL_STRING("ytmusic", settings().sourceOrder[0].c_str());
-  TEST_ASSERT_EQUAL_STRING("kugou", settings().sourceOrder[1].c_str());
-  TEST_ASSERT_FALSE(settings().sourceOn[2]);  // lrclib stays off
+  TEST_ASSERT_EQUAL_STRING("lrcred", settings().sourceOrder[1].c_str());
+  TEST_ASSERT_EQUAL_STRING("kugou", settings().sourceOrder[2].c_str());
+  TEST_ASSERT_FALSE(settings().sourceOn[3]);  // lrclib stays off
 }
 
 void setup() {

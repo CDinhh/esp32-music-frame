@@ -228,5 +228,7 @@ def render_lyrics(np: NowPlaying, position_ms: int, lyrics: Lyrics | None, karao
     if nxt < len(lines) and lines[nxt].text:
         n = fit(lines[nxt].text, 14, max_w)
         draw_text(d, (W - text_width(n, 14)) / 2, top + block + 8, n, 14, fill=DIM)
+    if lyrics.source == "lrcred":  # lrc.red's terms ask apps showing its sheets to credit it
+        draw_text(d, W - PAD - text_width("lrc.red", 11), H - 30, "lrc.red", 11, fill=DIM)
     _progress(d, np, position_ms)
     return _jpeg(img)

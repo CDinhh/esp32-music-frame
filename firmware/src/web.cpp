@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include "display.h"
 #include "gif_player.h"
+#include "health.h"
 #include "settings.h"
 #include "validate.h"
 
@@ -239,6 +240,11 @@ void webBegin() {
   server.on("/api/gifs", HTTP_DELETE, onGifDelete);
   server.on("/api/settings", HTTP_GET, onSettingsGet);
   server.on("/api/settings", HTTP_POST, onSettingsPost);
+  server.on("/api/health", HTTP_GET, [] {
+    JsonDocument d;
+    healthToJson(d.to<JsonObject>());
+    sendJson(200, d);
+  });
   server.on("/update", HTTP_POST, onUpdateDone, onUpdateUpload);
   server.on("/frame", HTTP_POST, onFrameDone, onFrameRaw);
   server.serveStatic("/gifs/", LittleFS, "/gifs/", "max-age=60");

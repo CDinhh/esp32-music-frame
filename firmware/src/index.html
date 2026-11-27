@@ -69,6 +69,17 @@ input[type=file]{padding:5px 6px}
 input[type=file]::file-selector-button{height:30px;margin-right:10px;padding:0 12px;border-radius:8px;border:1px solid var(--line);background:var(--glass-2);color:var(--ink);font:inherit;cursor:pointer}
 .ota{display:grid;gap:10px}
 .muted{color:var(--muted);font-size:13px}
+.badge{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--glass-2);color:var(--muted);transition:background .3s,color .3s}
+.badge.ok{background:#4ade8022;color:var(--ok)}
+.badge.warn{background:#fbbf2422;color:#fbbf24}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{padding:12px 14px;border-radius:12px;background:var(--glass);border:1px solid var(--line);display:flex;flex-direction:column;gap:2px;transition:border-color .3s}
+.stat span{font-size:12px;color:var(--muted)}
+.stat b{font-size:17px;font-weight:650;font-variant-numeric:tabular-nums}
+.stat.bad{border-color:#fbbf2488}
+#hWarn:empty{display:none}
+#hWarn{margin-top:12px}
 dialog{border:1px solid var(--line);border-radius:var(--r);padding:22px;background:#141a2ef2;color:var(--ink);backdrop-filter:blur(20px);max-width:340px;width:calc(100% - 32px)}
 dialog::backdrop{background:#0009;backdrop-filter:blur(4px)}
 dialog[open]{animation:pop .2s ease-out}
@@ -111,6 +122,19 @@ dialog .acts{display:flex;justify-content:flex-end;gap:10px}
       <div id="srcs"></div>
     </section>
   </div>
+
+  <section class="card">
+    <h2>Tình trạng <span class="badge" id="hBadge">…</span></h2>
+    <div class="stats">
+      <div class="stat"><span>Nhiệt độ chip</span><b id="hTemp">–</b></div>
+      <div class="stat"><span>Sóng WiFi</span><b id="hWifi">–</b></div>
+      <div class="stat"><span>Chạy liên tục</span><b id="hUp">–</b></div>
+      <div class="stat"><span>RAM trống</span><b id="hHeap">–</b></div>
+      <div class="stat"><span>Khởi động lại do</span><b id="hReset">–</b></div>
+      <div class="stat"><span>Số lần sụt nguồn</span><b id="hBrown">–</b></div>
+    </div>
+    <p class="muted" id="hWarn"></p>
+  </section>
 
   <section class="card">
     <h2>Cập nhật firmware</h2>
@@ -204,8 +228,25 @@ $("#ota").onsubmit=e=>{e.preventDefault();const file=$("#bin").files[0];if(!file
   x.onerror=()=>{bar.style.display="none";toast("Mất kết nối",1)};
   x.open("POST","/update");x.setRequestHeader("X-OTA-Password",$("#pw").value);x.send(f)};
 
-async function poll(){try{await api("/api/gifs");$("#dot").className="on"}catch{$("#dot").className=""}}
-(async()=>{try{S=await api("/api/settings");render();await loadGifs();$("#dot").className="on"}catch(e){toast("Không kết nối được màn hình",1)}setInterval(poll,15000)})();
+const RESET={power_on:"Cắm điện",restart:"Khởi động lại / nạp firmware",crash:"Lỗi phần mềm",watchdog:"Bị treo",brownout:"Sụt nguồn",reset_pin:"Nút RESET",usb:"Cổng USB",deep_sleep:"Ngủ sâu",unknown:"Không rõ"};
+const WARN={hot:"Chip đang nóng trên 70°C: để nơi thoáng hơn.",brownout:"Lần khởi động vừa rồi do sụt nguồn: thử cục sạc hoặc dây USB khác (nên từ 5V 1A).",crashed:"Lần khởi động vừa rồi do lỗi hoặc treo phần mềm.",weak_wifi:"Sóng WiFi yếu: để màn gần router hơn.",low_memory:"RAM từng xuống thấp: nếu hay bị vậy hãy báo lỗi."};
+function dur(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d} ngày ${h} giờ`:h?`${h} giờ ${m} phút`:`${m} phút`}
+function setStat(id,text,bad){const b=$(id);b.textContent=text;b.parentElement.classList.toggle("bad",!!bad)}
+async function poll(){
+  try{
+    const h=await api("/api/health");$("#dot").className="on";
+    setStat("#hTemp",h.temp_c.toFixed(1)+"°C",h.temp_c>70);
+    const q=h.rssi===0?"–":h.rssi>-60?"Mạnh":h.rssi>-70?"Tốt":h.rssi>-80?"Trung bình":"Yếu";
+    setStat("#hWifi",h.rssi?`${q} (${h.rssi} dBm)`:"–",h.rssi&&h.rssi<-80);
+    setStat("#hUp",dur(h.uptime_s));
+    setStat("#hHeap",kb(h.heap_free),h.heap_min<30000);
+    setStat("#hReset",RESET[h.reset_reason]||h.reset_reason,["brownout","crash","watchdog"].includes(h.reset_reason));
+    setStat("#hBrown",String(h.brownouts),h.reset_reason==="brownout");
+    const b=$("#hBadge");b.textContent=h.ok?"Ổn định":"Cần để ý";b.className="badge "+(h.ok?"ok":"warn");
+    $("#hWarn").textContent=h.warnings.map(w=>WARN[w]||w).join(" ");
+  }catch{$("#dot").className="";const b=$("#hBadge");b.textContent="Mất kết nối";b.className="badge warn"}
+}
+(async()=>{try{S=await api("/api/settings");render();await loadGifs();$("#dot").className="on"}catch(e){toast("Không kết nối được màn hình",1)}poll();setInterval(poll,5000)})();
 </script>
 </body>
 </html>

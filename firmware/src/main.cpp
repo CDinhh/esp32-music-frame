@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include "display.h"
 #include "gif_player.h"
+#include "health.h"
 #include "settings.h"
 #include "web.h"
 
@@ -48,6 +49,7 @@ void setup() {
 #if ARDUINO_USB_CDC_ON_BOOT
   Serial.setTxTimeoutMs(0);  // never block when no console is reading
 #endif
+  healthBegin();
   displayBegin();
   loadSettings();
   setBacklight(settings().brightness);

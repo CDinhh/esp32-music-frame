@@ -4,6 +4,7 @@
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <miniz.h>
 #include "display.h"
 #include "gif_player.h"
 #include "fetch.h"
@@ -164,6 +165,9 @@ void onGifDelete() {
 void onSettingsGet() {
   JsonDocument d;
   settingsToJson(d.to<JsonObject>());
+  d["partial"] = true;
+  d["in_music"] = inMusic;
+  d["stream"] = 81;
   sendJson(200, d);
 }
 
@@ -189,6 +193,8 @@ void onSettingsPost() {
 // ---------- OTA ----------
 bool otaAuthed = false;
 String otaError;
+WiFiServer streamServer(81, 1);
+WiFiClient streamClient;
 
 void onUpdateUpload() {
   if (!isMultipart()) {
@@ -205,6 +211,7 @@ void onUpdateUpload() {
       return;
     }
     logf("ota: receiving firmware");
+    if (streamClient) streamClient.stop();
     gifClose();
     if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) otaError = Update.errorString();
   } else if (u.status == UPLOAD_FILE_WRITE) {
@@ -233,9 +240,113 @@ void onUpdateDone() {
 }
 
 // ---------- music frames ----------
+constexpr size_t STREAM_MAX_BYTES = SCREEN * SCREEN * 3 + 1024;
 uint8_t* frameBuf = nullptr;
+uint8_t* streamBuf = nullptr;
+uint8_t* rawBuf = nullptr;
+uint16_t* dmaBuf = nullptr;
+tinfl_decompressor* decomp = nullptr;
 size_t frameLen = 0;
 bool frameTooBig = false;
+
+void fillFrameReply(JsonDocument& d) {
+  d["offset_ms"] = settings().offsetMs;
+  d["word_sync"] = settings().wordSync;
+  d["music_mode"] = settings().musicMode;
+  d["partial"] = true;
+  d["in_music"] = inMusic;
+  d["stream"] = 81;
+  enabledSources(d["sources"].to<JsonArray>());
+}
+
+bool readExact(WiFiClient& c, uint8_t* dst, size_t n, uint32_t timeoutMs) {
+  size_t got = 0;
+  uint32_t start = millis();
+  while (got < n) {
+    int avail = c.available();
+    if (avail > 0) {
+      int r = c.read(dst + got, min((size_t)avail, n - got));
+      if (r > 0) {
+        got += (size_t)r;
+        start = millis();
+        continue;
+      }
+    }
+    if (!c.connected() || millis() - start > timeoutMs) return false;
+    delay(1);
+  }
+  return true;
+}
+
+void handleStream() {
+  if (!streamBuf || !rawBuf || !dmaBuf || !decomp) return;
+  if (streamServer.hasClient()) {
+    if (streamClient) streamClient.stop();
+    streamClient = streamServer.accept();
+    if (streamClient) streamClient.setNoDelay(true);
+  }
+  if (!streamClient || !streamClient.connected() || streamClient.available() < 14) return;
+
+  uint8_t hdr[14];
+  if (!readExact(streamClient, hdr, 14, 200)) { streamClient.stop(); return; }
+  if (hdr[0] != 'M' || hdr[1] != 'F') {
+    logf("stream: bad magic");
+    streamClient.stop();
+    return;
+  }
+  uint16_t x = hdr[2] | (hdr[3] << 8);
+  uint16_t y = hdr[4] | (hdr[5] << 8);
+  uint16_t w = hdr[6] | (hdr[7] << 8);
+  uint16_t h = hdr[8] | (hdr[9] << 8);
+  uint32_t len = (uint32_t)hdr[10] | ((uint32_t)hdr[11] << 8) | ((uint32_t)hdr[12] << 16) | ((uint32_t)hdr[13] << 24);
+  if (w == 0 || h == 0 || x + w > SCREEN || y + h > SCREEN || len == 0 || len > STREAM_MAX_BYTES) {
+    logf("stream: bad rect %ux%u+%u+%u len=%u", w, h, x, y, (unsigned)len);
+    streamClient.stop();
+    return;
+  }
+  if (!readExact(streamClient, streamBuf, len, 1000)) {
+    logf("stream: short read");
+    streamClient.stop();
+    return;
+  }
+
+  size_t want = (size_t)w * h * 3;
+  size_t inLen = len;
+  size_t outLen = want;
+  tinfl_init(decomp);
+  tinfl_status st = tinfl_decompress(
+      decomp, streamBuf, &inLen, rawBuf, rawBuf, &outLen,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  if (st != TINFL_STATUS_DONE || outLen != want) {
+    logf("stream: inflate err=%d (%u/%u)", (int)st, (unsigned)outLen, (unsigned)want);
+    streamClient.stop();
+    return;
+  }
+
+  if (settings().musicMode && (inMusic || (x == 0 && y == 0))) {
+    if (!inMusic) {
+      gifClose();
+      logf("music: showing now playing");
+    }
+    inMusic = true;
+    lastFrameMs = millis();
+    display().waitDMA();
+    const uint8_t* src = rawBuf;
+    size_t px = (size_t)w * h;
+    for (size_t i = 0; i < px; i++) {
+      uint16_t c = ((src[0] & 0xF8) << 8) | ((src[1] & 0xFC) << 3) | (src[2] >> 3);
+      dmaBuf[i] = (uint16_t)((c >> 8) | (c << 8));
+      src += 3;
+    }
+    display().pushImageDMA(x, y, w, h, (lgfx::swap565_t*)dmaBuf);
+  }
+  JsonDocument d;
+  fillFrameReply(d);
+  String out;
+  serializeJson(d, out);
+  out += '\n';
+  streamClient.write((const uint8_t*)out.c_str(), out.length());
+}
 
 void onFrameRaw() {
   HTTPRaw& r = server.raw();
@@ -255,28 +366,35 @@ void onFrameRaw() {
 void onFrameDone() {
   if (frameTooBig) return sendError(413, "frame larger than 100 KB");
   if (!isJpeg(frameBuf, frameLen)) return sendError(400, "not a JPEG");
-  if (settings().musicMode) {
+  int x = server.hasHeader("X-Frame-X") ? server.header("X-Frame-X").toInt() : 0;
+  int y = server.hasHeader("X-Frame-Y") ? server.header("X-Frame-Y").toInt() : 0;
+  if (x < 0 || x >= SCREEN || y < 0 || y >= SCREEN) return sendError(400, "bad frame rect");
+  if (settings().musicMode && (inMusic || (x == 0 && y == 0))) {
     if (!inMusic) {
       gifClose();
       logf("music: showing now playing");
     }
     inMusic = true;
     lastFrameMs = millis();
-    display().drawJpg(frameBuf, frameLen, 0, 0);
+    display().waitDMA();
+    display().drawJpg(frameBuf, frameLen, x, y);
   }
   JsonDocument d;
-  d["offset_ms"] = settings().offsetMs;
-  d["word_sync"] = settings().wordSync;
-  d["music_mode"] = settings().musicMode;
-  enabledSources(d["sources"].to<JsonArray>());
+  fillFrameReply(d);
   sendJson(200, d);
 }
 }  // namespace
 
 void webBegin() {
   frameBuf = (uint8_t*)ps_malloc(FRAME_MAX_BYTES);
-  const char* headers[] = {"X-OTA-Password", "Content-Type"};
-  server.collectHeaders(headers, 2);
+  streamBuf = (uint8_t*)ps_malloc(STREAM_MAX_BYTES);
+  rawBuf = (uint8_t*)ps_malloc(SCREEN * SCREEN * 3);
+  dmaBuf = (uint16_t*)ps_malloc(SCREEN * SCREEN * 2);
+  decomp = (tinfl_decompressor*)malloc(sizeof(tinfl_decompressor));
+  if (!frameBuf || !streamBuf || !rawBuf || !dmaBuf || !decomp)
+    logf("mem: stream alloc failed");
+  const char* headers[] = {"X-OTA-Password", "Content-Type", "X-Frame-X", "X-Frame-Y"};
+  server.collectHeaders(headers, 4);
   server.on("/", HTTP_GET, [] { server.send(200, "text/html; charset=utf-8", index_html_start); });
   server.on("/api/gifs", HTTP_GET, onGifList);
   server.on("/api/gifs", HTTP_POST, onGifUploadDone, onGifUpload);
@@ -300,10 +418,13 @@ void webBegin() {
   server.serveStatic("/gifs/", LittleFS, "/gifs/", "max-age=60");
   server.onNotFound([] { sendError(404, "not found"); });
   server.begin();
+  streamServer.begin();
+  streamServer.setNoDelay(true);
 }
 
 void webLoop() {
   server.handleClient();
+  handleStream();
   if (inMusic && millis() - lastFrameMs > 5000) {
     inMusic = false;
     gifChanged = true;

@@ -84,6 +84,24 @@ def test_client_offline_returns_none():
     assert FrameClient("127.0.0.1:9").send(b"\xff\xd8") is None
 
 
+def test_client_sends_rect_headers(monkeypatch):
+    c = FrameClient("127.0.0.1")
+    sent = {}
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"ok": True}
+
+    def fake_post(url, data, headers, timeout):
+        sent["url"], sent["headers"] = url, headers
+        return Resp()
+
+    monkeypatch.setattr(c.session, "post", fake_post)
+    c.send(b"\xff\xd8", 0, 72)
+    assert sent["url"].endswith("/frame")
+    assert sent["headers"]["X-Frame-X"] == "0" and sent["headers"]["X-Frame-Y"] == "72"
+
+
 # ---- lyrics ----
 def test_parse_lrc_multi_stamp():
     ls = parse_lrc("[ar:x]\n[00:01.50][00:10.00]la\n[00:05.123]li\n[01:02]x")
@@ -137,17 +155,120 @@ def test_decode_krc_roundtrip():
 
 def test_parse_richsync_words():
     l = parse_richsync('[{"ts":1.0,"te":2.0,"l":[{"c":"H","o":0},{"c":"i","o":0.2},{"c":" ","o":0.4},{"c":"y","o":0.5},{"c":"o","o":0.7}],"x":"Hi yo"}]')[0]
-    assert [w.text for w in l.words] == ["Hi", "yo"] and l.words[1].start_ms == 1500 and l.words[1].end_ms == 2000
+    assert [w.text for w in l.words] == ["H", "i", " ", "y", "o"]
+    assert l.words[0].start_ms == 1000 and l.words[0].end_ms == 1200
+    assert l.words[3].start_ms == 1500 and l.words[4].end_ms == 2000
 
 
 # ---- loop timing ----
 def test_frame_timing_line_vs_word():
+    from musicframe.main import ANIM_FPS_S
     ly = Lyrics([Line(0, "a", [Word(0, 500, "a")]), Line(1300, "b", [Word(1300, 2000, "b")])], True, "t")
     np = NP(pos=1000)
     _, wait = frame_for(np, np.updated_at, {"word_sync": False}, ly)
     assert abs(wait - 0.3) < 0.01  # wakes when the next line starts
     _, wait = frame_for(np, np.updated_at, {"word_sync": True}, ly)
-    assert wait == 0.125
+    assert wait == ANIM_FPS_S
+
+
+def test_line_scroll_animates_even_without_word_sync():
+    from musicframe.lyrics.motion import SheetAnimator
+    from musicframe.main import ANIM_FPS_S, frame_for
+    ly = Lyrics([Line(0, "Line one"), Line(2000, "Line two"), Line(6000, "Line three")], False, "lrc")
+    anim = SheetAnimator()
+    np = NP(pos=500)
+    # First frame snaps to line 0
+    _, wait = frame_for(np, np.updated_at, {"word_sync": False}, ly, anim, mono_now=1.0)
+    assert wait == 1.0
+    # Advancing to line 1 triggers spring scroll + transition animation even with word_sync=False
+    np2 = NP(pos=2050)
+    _, wait = frame_for(np2, np2.updated_at, {"word_sync": False}, ly, anim, mono_now=1.03)
+    assert wait == ANIM_FPS_S and not anim.settled
+    # After ~1.0s of stepping, spring settles back to idle wait
+    t = 1.03
+    for _ in range(35):
+        t += 0.03
+        _, wait = frame_for(np2, np2.updated_at, {"word_sync": False}, ly, anim, mono_now=t)
+    assert anim.settled and wait == 1.0
+
+
+def test_monotone_pchip_and_timed_units():
+    from musicframe.lyrics.motion import monotone, timed_units
+    keys = [(0.0, 0.0), (1.0, 50.0), (2.0, 50.0), (3.0, 100.0)]
+    assert monotone(keys, -0.5) == 0.0
+    assert monotone(keys, 3.5) == 100.0
+    assert monotone(keys, 1.5) == 50.0  # flat rest stays flat without overshoot
+    mid = monotone(keys, 0.5)
+    assert 0.0 < mid < 50.0
+    # Unspaced CJK splits into per-character units; Latin stays cohesive in rise groups
+    cjk = Line(1000, "愛してる", [Word(1000, 2500, "愛してる")])
+    units = timed_units(cjk, 20.0)
+    assert len(units) == 4 and units[0].start_ms == 1000 and units[-1].end_ms == 2500
+    assert [u.group for u in units] == [0, 1, 2, 3]
+    lat = Line(1000, "Hi yo", [Word(1000, 1200, "H"), Word(1200, 1400, "i"), Word(1400, 1500, " "), Word(1500, 1700, "y"), Word(1700, 2000, "o")])
+    l_units = timed_units(lat, 20.0)
+    assert l_units[0].group == l_units[1].group  # "Hi" rises together
+    assert l_units[3].group == l_units[4].group and l_units[3].group > l_units[0].group
+
+
+def test_render_frame_dirty_rects_and_instrumental_break():
+    from musicframe.render import LYRICS_H, LYRICS_Y, render_frame
+    ly = Lyrics([Line(6000, "After intro")], False, "lrc")
+    jpeg_lyrics, x, y = render_frame(NP(), 3000, ly, region="lyrics")
+    assert (x, y) == (0, LYRICS_Y) and img(jpeg_lyrics).size == (240, LYRICS_H)
+    jpeg_lower, x2, y2 = render_frame(NP(), 3000, ly, region="lower")
+    assert (x2, y2) == (0, LYRICS_Y) and img(jpeg_lower).size == (240, 240 - LYRICS_Y)
+
+
+def test_haze_blurs_inactive_lines_progressively():
+    from musicframe.render import _quantized_blur, _viewport_softness, ANCHOR_Y, AREA_TOP, LYRICS_Y
+    anchor = (AREA_TOP - LYRICS_Y) + ANCHOR_Y
+    assert _viewport_softness(anchor, anchor) == 0.0
+    assert _quantized_blur(17.0, 0.0) == 0.0
+    near_soft = _viewport_softness(anchor + 28.0, anchor)
+    far_soft = _viewport_softness(anchor + 65.0, anchor)
+    assert 0.0 < near_soft < far_soft <= 1.0
+    assert 0.0 < _quantized_blur(17.0, near_soft) <= _quantized_blur(17.0, far_soft)
+
+
+def test_stream_frame_and_tcp_protocol():
+    import json
+    import socket
+    import struct
+    import threading
+    import zlib
+    from musicframe.render import LYRICS_H, LYRICS_Y, render_stream_frame
+
+    ly = Lyrics([Line(0, "Hello"), Line(2000, "World")], False, "lrc")
+    payload, x, y, w, h = render_stream_frame(NP(), 500, ly, region="lyrics")
+    assert (x, y, w, h) == (0, LYRICS_Y, 240, LYRICS_H)
+    raw = zlib.decompress(payload)
+    assert len(raw) == w * h * 3
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def server_once():
+        conn, _ = srv.accept()
+        hdr = conn.recv(14)
+        magic, sx, sy, sw, sh, slen = struct.unpack("<2sHHHHI", hdr)
+        assert (magic, sx, sy, sw, sh, slen) == (b"MF", x, y, w, h, len(payload))
+        body = b""
+        while len(body) < slen:
+            body += conn.recv(slen - len(body))
+        assert body == payload
+        conn.sendall((json.dumps({"offset_ms": 0, "word_sync": False, "music_mode": True, "in_music": True, "partial": True, "stream": port}) + "\n").encode())
+        conn.close()
+        srv.close()
+
+    t = threading.Thread(target=server_once, daemon=True)
+    t.start()
+    c = FrameClient("127.0.0.1")
+    reply = c.send_stream(payload, x, y, w, h, port=port)
+    c.close_stream()
+    assert reply and reply["in_music"] is True and reply["stream"] == port
 
 
 def test_lrclib_falls_back_to_search_with_same_length(monkeypatch):

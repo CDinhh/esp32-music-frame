@@ -47,26 +47,22 @@ def parse_krc(text: str) -> list[Line]:
 
 
 def parse_richsync(json_str: str) -> list[Line]:
-    """Musixmatch: [{"ts":s,"te":s,"l":[{"c":chars,"o":offset_s}],"x":text}] — chars grouped into words on spaces."""
+    """Musixmatch: [{"ts":s,"te":s,"l":[{"c":chars,"o":offset_s}],"x":text}] — keep per-char timings."""
     out = []
     for item in json.loads(json_str):
         ts, te = float(item["ts"]), float(item["te"])
         parts = item.get("l", [])
         words: list[Word] = []
-        cur = None
         for i, p in enumerate(parts):
-            if p["c"].isspace():
-                cur = None
+            ch = p.get("c", "")
+            if not ch:
                 continue
-            start = int((ts + float(p["o"])) * 1000)
-            end = int((ts + float(parts[i + 1]["o"])) * 1000) if i + 1 < len(parts) else int(te * 1000)
-            if cur is None:
-                cur = Word(start, end, p["c"])
-                words.append(cur)
-            else:
-                cur.end_ms, cur.text = end, cur.text + p["c"]
+            start = int(round((ts + float(p["o"])) * 1000))
+            end = int(round((ts + float(parts[i + 1]["o"])) * 1000)) if i + 1 < len(parts) else int(round(te * 1000))
+            words.append(Word(start, max(end, start), ch))
         if words:
-            out.append(Line(int(ts * 1000), item.get("x", " ".join(w.text for w in words)), words))
+            text = item.get("x") or "".join(w.text for w in words).strip()
+            out.append(Line(int(round(ts * 1000)), text, words))
     return out
 
 

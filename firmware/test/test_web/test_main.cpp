@@ -106,8 +106,12 @@ void test_frame_endpoint() {
   Resp r = req("POST", "/frame", big, 1000, "image/jpeg");  // valid header, junk body: drawn as garbage, never a crash
   TEST_ASSERT_EQUAL(200, r.code);
   TEST_ASSERT_TRUE(r.body.indexOf("\"offset_ms\"") >= 0);
+  TEST_ASSERT_TRUE(r.body.indexOf("\"partial\":true") >= 0);
+  TEST_ASSERT_TRUE(r.body.indexOf("\"in_music\":true") >= 0);
   TEST_ASSERT_TRUE(r.body.indexOf("\"sources\":[") >= 0);
   TEST_ASSERT_TRUE(musicActive());
+  TEST_ASSERT_EQUAL(200, req("POST", "/frame", big, 1000, "image/jpeg", "X-Frame-Y", "72").code);
+  TEST_ASSERT_EQUAL(400, req("POST", "/frame", big, 1000, "image/jpeg", "X-Frame-X", "300").code);
 }
 
 void test_health_api() {

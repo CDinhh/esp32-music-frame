@@ -18,6 +18,7 @@ from .render import progress_visual, render_frame, render_stream_frame
 
 log = logging.getLogger("musicframe")
 LINE_FPS_S, ANIM_FPS_S = 1.0, 1.0 / 50.0
+WAVE_FPS_S = 1.0 / 20.0  # the timeline wave keeps moving
 RETRY_S = 120  # look for lyrics again after a miss
 
 
@@ -67,13 +68,14 @@ def stream_packet_for(
     mono_now: float | None = None,
     previous=None,
 ):
-    """Changed part of the screen: (payload, (x, y, w, h), wait, rendered position_ms, whole frame)."""
+    """Changed parts of the screen: ([(payload, x, y, w, h)], wait, rendered position_ms, whole frame)."""
     if mono_now is None:
         mono_now = time.monotonic()
     pos = interpolate(np, np.updated_at, now) + int(reply.get("offset_ms", 0))
     karaoke = bool(reply.get("word_sync")) and bool(lyrics and lyrics.word_synced)
-    payload, x, y, w, h, frame = render_stream_frame(np, pos, lyrics, karaoke, animator, mono_now, previous)
-    return payload, (x, y, w, h), _next_wait(lyrics, pos, karaoke, animator, mono_now), pos, frame
+    parts, frame = render_stream_frame(np, pos, lyrics, karaoke, animator, mono_now, previous)
+    wait = min(_next_wait(lyrics, pos, karaoke, animator, mono_now), WAVE_FPS_S)
+    return parts, wait, pos, frame
 
 
 def frame_for(np, now, reply, lyrics, animator: SheetAnimator | None = None, mono_now: float | None = None) -> tuple[bytes, float]:
@@ -143,8 +145,11 @@ async def run(host: str):
         sent_at = time.time()
         stream_port = reply.get("stream")
         if stream_port:
-            payload, rect, wait, rendered_pos, frame = stream_packet_for(np, now + lag, reply, ly, animator, mono_now, shown)
-            got = client.send_stream(payload, *rect, int(stream_port))
+            parts, wait, rendered_pos, frame = stream_packet_for(np, now + lag, reply, ly, animator, mono_now, shown)
+            for part in parts:
+                got = client.send_stream(*part, int(stream_port))
+                if got is None:
+                    break
             # only trust it as "on screen" if the screen says it is showing music
             shown = frame if got and got.get("music_mode", True) and got.get("in_music", True) else None
         else:

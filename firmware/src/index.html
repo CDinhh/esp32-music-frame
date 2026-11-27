@@ -37,18 +37,21 @@ button,input{font:inherit;color:inherit}
 .seg button:hover{color:var(--ink)}
 .seg button[aria-checked="true"]{background:var(--accent);color:var(--accent-ink)}
 
-main{max-width:1040px;margin:0 auto;padding:20px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:20px;align-items:start}
+main{max-width:1040px;margin:0 auto;padding:20px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:20px}
 @media(max-width:820px){main{grid-template-columns:1fr}.dev .now{display:none}}
-.col{display:grid;gap:20px;align-content:start}
 .wide{grid-column:1/-1}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+/* cards sit in rows, so each pair shares one top and one bottom edge */
+.panel{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+section.panel{display:flex;flex-direction:column}
 .panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 h2{font-size:14px;font-weight:650}
 .hint{font-size:13px;color:var(--ink-3)}
 .notice{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:10px 12px;border-radius:var(--r-sm);background:#f2b84b14;border:1px solid #f2b84b40;color:#f5d38f;font-size:13px}
 .notice[hidden]{display:none}
 
-.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+/* one row that scrolls sideways: the card keeps its height however many GIFs there are */
+.lib{display:grid;grid-auto-flow:column;grid-auto-columns:128px;align-content:start;gap:10px;overflow-x:auto;overscroll-behavior-x:contain;padding:2px 2px 10px;margin:-2px -2px 0}
+.lib::-webkit-scrollbar-thumb{border-color:var(--panel)}
 .tile{position:relative;aspect-ratio:1;border-radius:var(--r-sm);overflow:hidden;background:var(--raised);border:1px solid var(--line);cursor:pointer;transition:border-color .18s,transform .18s var(--ease)}
 .tile:hover{border-color:var(--line-2);transform:translateY(-1px)}
 .tile.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
@@ -66,7 +69,7 @@ h2{font-size:14px;font-weight:650}
 .paste-msg{font-size:13px;color:var(--ink-2);margin:-4px 0 12px}
 .paste-msg:empty{display:none}
 .paste-msg.bad{color:#ff9a9a}
-.empty{grid-column:1/-1;color:var(--ink-3);font-size:13px;padding:4px 0 2px}
+.empty{width:240px;align-self:center;color:var(--ink-3);font-size:13px}
 .skel{aspect-ratio:1;border-radius:var(--r-sm);background:linear-gradient(90deg,var(--raised),#25282d,var(--raised));background-size:200% 100%;animation:sk 1.2s linear infinite}
 @keyframes sk{to{background-position:-200% 0}}
 .bar{height:4px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:12px}
@@ -97,7 +100,7 @@ h2{font-size:14px;font-weight:650}
 .mv button{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line-2);border-radius:6px;background:none;cursor:pointer}
 @media(pointer:coarse){.mv{display:flex}.src .grip{visibility:hidden}}
 
-.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px}
+.kv{flex:1;display:grid;grid-template-columns:auto 1fr;align-content:space-between;gap:8px 16px;font-size:14px}
 .kv dt{color:var(--ink-2)}
 .kv dd{text-align:right}
 .kv dd.bad{color:var(--warn)}
@@ -168,47 +171,43 @@ dialog .acts{display:flex;justify-content:flex-end;gap:8px}
 </header>
 
 <main>
-  <div class="col">
-    <section class="panel" aria-labelledby="h-lib">
-      <header><h2 id="h-lib">Thư viện GIF</h2><span class="hint num" id="free"></span></header>
-      <form class="paste" id="paste">
-        <input class="input" id="link" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Dán link GIF, link Giphy hoặc mã embed" aria-label="Link GIF">
-        <button class="btn primary" type="submit" id="pasteBtn">Thêm</button>
-      </form>
-      <p class="paste-msg" id="pasteMsg" aria-live="polite"></p>
-      <div class="lib" id="gifs"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
-      <input id="file" type="file" accept="image/gif" multiple hidden>
-      <div class="bar" id="bar" hidden><i></i></div>
-      <p class="notice" id="noApp" hidden><svg class="ico"><use href="#i-info"/></svg><span>Đang để chế độ Nhạc nhưng chưa nhận được bài nào từ máy tính. Mở app Music Frame trên PC rồi phát nhạc; trong lúc chờ, màn vẫn chiếu GIF.</span></p>
-    </section>
+  <section class="panel" aria-labelledby="h-lib">
+    <header><h2 id="h-lib">Thư viện GIF</h2><span class="hint num" id="free"></span></header>
+    <form class="paste" id="paste">
+      <input class="input" id="link" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Dán link GIF, link Giphy hoặc mã embed" aria-label="Link GIF">
+      <button class="btn primary" type="submit" id="pasteBtn">Thêm</button>
+    </form>
+    <p class="paste-msg" id="pasteMsg" aria-live="polite"></p>
+    <div class="lib" id="gifs"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+    <input id="file" type="file" accept="image/gif" multiple hidden>
+    <div class="bar" id="bar" hidden><i></i></div>
+    <p class="notice" id="noApp" hidden><svg class="ico"><use href="#i-info"/></svg><span>Đang để chế độ Nhạc nhưng chưa nhận được bài nào từ máy tính. Mở app Music Frame trên PC rồi phát nhạc; trong lúc chờ, màn vẫn chiếu GIF.</span></p>
+  </section>
 
-    <section class="panel" aria-labelledby="h-health">
-      <header><h2 id="h-health">Tình trạng</h2><span class="pill" id="hBadge">Đang kiểm tra</span></header>
-      <dl class="kv num">
-        <dt>Nhiệt độ chip</dt><dd id="hTemp">–</dd>
-        <dt>Sóng WiFi</dt><dd id="hWifi">–</dd>
-        <dt>Chạy liên tục</dt><dd id="hUp">–</dd>
-        <dt>RAM trống</dt><dd id="hHeap">–</dd>
-        <dt>Khởi động lại do</dt><dd id="hReset">–</dd>
-        <dt>Số lần sụt nguồn</dt><dd id="hBrown">–</dd>
-      </dl>
-      <p class="notice" id="hWarn" hidden></p>
-    </section>
-  </div>
+  <section class="panel" aria-labelledby="h-disp">
+    <header><h2 id="h-disp">Màn hình</h2></header>
+    <div class="field"><label for="bright">Độ sáng</label><output class="num" id="brightV"></output><input id="bright" type="range" min="5" max="100" step="5"></div>
+    <div class="field"><label for="word">Lời chạy theo từng chữ</label><span class="switch"><input id="word" type="checkbox"><i></i></span></div>
+    <div class="field"><label for="offset">Lệch lời</label><output class="num" id="offsetV"></output><input id="offset" type="range" min="-2000" max="2000" step="100"></div>
+  </section>
 
-  <div class="col">
-    <section class="panel" aria-labelledby="h-disp">
-      <header><h2 id="h-disp">Màn hình</h2></header>
-      <div class="field"><label for="bright">Độ sáng</label><output class="num" id="brightV"></output><input id="bright" type="range" min="5" max="100" step="5"></div>
-      <div class="field"><label for="word">Lời chạy theo từng chữ</label><span class="switch"><input id="word" type="checkbox"><i></i></span></div>
-      <div class="field"><label for="offset">Lệch lời</label><output class="num" id="offsetV"></output><input id="offset" type="range" min="-2000" max="2000" step="100"></div>
-    </section>
+  <section class="panel" aria-labelledby="h-health">
+    <header><h2 id="h-health">Tình trạng</h2><span class="pill" id="hBadge">Đang kiểm tra</span></header>
+    <dl class="kv num">
+      <dt>Nhiệt độ chip</dt><dd id="hTemp">–</dd>
+      <dt>Sóng WiFi</dt><dd id="hWifi">–</dd>
+      <dt>Chạy liên tục</dt><dd id="hUp">–</dd>
+      <dt>RAM trống</dt><dd id="hHeap">–</dd>
+      <dt>Khởi động lại do</dt><dd id="hReset">–</dd>
+      <dt>Số lần sụt nguồn</dt><dd id="hBrown">–</dd>
+    </dl>
+    <p class="notice" id="hWarn" hidden></p>
+  </section>
 
-    <section class="panel" aria-labelledby="h-src">
-      <header><h2 id="h-src">Nguồn lời bài hát</h2><span class="hint">Trên cùng được ưu tiên</span></header>
-      <ol class="srcs" id="srcs"></ol>
-    </section>
-  </div>
+  <section class="panel" aria-labelledby="h-src">
+    <header><h2 id="h-src">Nguồn lời bài hát</h2><span class="hint">Trên cùng được ưu tiên</span></header>
+    <ol class="srcs" id="srcs"></ol>
+  </section>
 
   <section class="panel wide" aria-labelledby="h-log">
     <header><h2 id="h-log">Nhật ký</h2><button class="btn sm" id="logCopy" type="button"><svg class="ico"><use href="#i-copy"/></svg>Sao chép</button></header>
@@ -262,8 +261,10 @@ async function loadGifs(){
   }
   const add=document.createElement("label");add.className="add";add.htmlFor="file";add.tabIndex=0;
   add.innerHTML=`${ICON("plus")}<span>Thêm GIF</span>`;add.onkeydown=e=>{if(e.key==="Enter")$("#file").click()};
-  box.appendChild(add);
-  if(!j.gifs.length){const p=document.createElement("p");p.className="empty";p.textContent="Chưa có GIF nào. Thêm file .gif (tối đa 2 MB, cạnh dài ≤ 480 px); ảnh lớn hơn 240 px sẽ được thu nhỏ cho vừa màn.";box.prepend(p)}
+  box.prepend(add);
+  if(!j.gifs.length){const p=document.createElement("p");p.className="empty";p.textContent="Chưa có GIF nào. Thêm file .gif (tối đa 2 MB, cạnh dài ≤ 480 px); ảnh lớn hơn 240 px sẽ được thu nhỏ cho vừa màn.";box.appendChild(p)}
+  const on=box.querySelector(".tile.active");  // scroll the row only, never the page
+  if(on)box.scrollLeft=Math.max(0,on.offsetLeft-box.offsetLeft+on.offsetWidth-box.clientWidth);
 }
 
 function upload(file){return new Promise((res,rej)=>{
@@ -312,6 +313,7 @@ $("#paste").onsubmit=async e=>{
   tick();
 };
 
+$("#gifs").addEventListener("wheel",e=>{const b=e.currentTarget;if(b.scrollWidth>b.clientWidth&&Math.abs(e.deltaY)>Math.abs(e.deltaX)){b.scrollLeft+=e.deltaY;e.preventDefault()}},{passive:false});
 $("#file").onchange=async e=>{for(const f of e.target.files){try{await upload(f);toast("Đã thêm "+f.name)}catch(err){toast(err.message,1)}}e.target.value="";loadGifs()};
 
 async function save(patch){try{S=await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});render()}catch(e){toast(e.message,1)}}

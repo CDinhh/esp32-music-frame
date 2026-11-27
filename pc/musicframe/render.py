@@ -1,5 +1,4 @@
 """Draws the whole 240x240 music screen (or dirty lyric region) as a JPEG, so the ESP32 needs no fonts or layout."""
-import colorsys
 import io
 import math
 import os
@@ -248,25 +247,11 @@ def clock(ms: int) -> str:
     return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
 
 
-ACCENT = (255, 122, 89)  # used when the cover has no colour of its own
+ACCENT = (124, 199, 255)  # light blue, the same as the web panel
 BARS_Y = 225             # vertical middle of the timeline
 TIMELINE_Y = 212         # everything below belongs to the timeline and is streamed on its own
 RAIL = (112, 118, 140)   # the time still to play
 WAVE_LEN, WAVE_AMP, WAVE_SPEED = 16.0, 2.8, 18.0  # px, px, px per second
-
-
-@lru_cache(maxsize=8)
-def _accent(cover: bytes | None) -> tuple[int, int, int]:
-    """The most colourful tone of the cover, brightened so it reads on the dark screen."""
-    img = _cover(cover, 24)
-    if img is None:
-        return ACCENT
-    data = img.tobytes()
-    hsv = [colorsys.rgb_to_hsv(*(c / 255 for c in data[i:i + 3])) for i in range(0, len(data), 3)]
-    h, s, v = max(hsv, key=lambda c: c[1] * c[2])
-    if s * v < 0.2:
-        return ACCENT
-    return tuple(round(c * 255) for c in colorsys.hsv_to_rgb(h, min(max(s, 0.4), 0.75), 1.0))
 
 
 def _span(np: NowPlaying, pos: int) -> tuple[str, str, int, int]:
@@ -306,7 +291,6 @@ def _progress(img: Image.Image, np: NowPlaying, pos: int, t: float = 0.0):
     ld.line([(head, mid), (end, mid)], fill=(*RAIL, 255), width=4 * k)
     ld.ellipse([end - 2 * k, mid - 2 * k, end + 2 * k, mid + 2 * k], fill=(*RAIL, 255))
 
-    accent = _accent(np.cover)
     points = []
     for i in range(int(done * 2) + 1):  # a point every half pixel
         x = i / 2
@@ -314,11 +298,11 @@ def _progress(img: Image.Image, np: NowPlaying, pos: int, t: float = 0.0):
         y = math.sin((x - t * WAVE_SPEED) * math.tau / WAVE_LEN) * WAVE_AMP * max(ease, 0.0)
         points.append(((pad + x) * k, mid + y * k))
     if len(points) > 1:
-        ld.line(points, fill=(*accent, 255), width=3 * k, joint="curve")
+        ld.line(points, fill=(*ACCENT, 255), width=3 * k, joint="curve")
         x, y = points[0]
-        ld.ellipse([x - 1.5 * k, y - 1.5 * k, x + 1.5 * k, y + 1.5 * k], fill=(*accent, 255))
+        ld.ellipse([x - 1.5 * k, y - 1.5 * k, x + 1.5 * k, y + 1.5 * k], fill=(*ACCENT, 255))
 
-    ld.ellipse([head - 5.5 * k, mid - 5.5 * k, head + 5.5 * k, mid + 5.5 * k], fill=(*accent, 110))  # halo
+    ld.ellipse([head - 5.5 * k, mid - 5.5 * k, head + 5.5 * k, mid + 5.5 * k], fill=(*ACCENT, 110))  # halo
     ld.ellipse([head - 4 * k, mid - 4 * k, head + 4 * k, mid + 4 * k], fill=(*WHITE, 255))
     layer = layer.resize((w, h), Image.Resampling.LANCZOS)
     img.paste(layer, (x0 - pad, BARS_Y - h // 2), layer)

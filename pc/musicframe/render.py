@@ -1,4 +1,4 @@
-"""Draws the whole 240x240 music screen (or dirty lyric region) as a JPEG, so the ESP32 needs no fonts or layout."""
+"""Draws the whole 240x240 music screen, so the ESP32 needs no fonts or layout; only changed parts are sent."""
 import io
 import math
 import os
@@ -264,14 +264,6 @@ def _span(np: NowPlaying, pos: int) -> tuple[str, str, int, int]:
     return left, right, x0, x1
 
 
-def progress_visual(np: NowPlaying, pos: int) -> tuple[str, int]:
-    """Observable progress bar state (left clock string, filled pixel x) for dirty-rect checks."""
-    left, _, x0, x1 = _span(np, pos)
-    if np.duration_ms <= 0:
-        return left, -1
-    return left, round(x0 + (x1 - x0) * min(max(pos, 0) / np.duration_ms, 1.0))
-
-
 def _progress(img: Image.Image, np: NowPlaying, pos: int, t: float = 0.0):
     """'1:23 ~~~~~o──────── -2:59': the played part is a flowing wave, the rest a plain rail."""
     left, right, x0, x1 = _span(np, pos)
@@ -308,12 +300,6 @@ def _progress(img: Image.Image, np: NowPlaying, pos: int, t: float = 0.0):
     img.paste(layer, (x0 - pad, BARS_Y - h // 2), layer)
 
 
-def _jpeg(img: Image.Image) -> bytes:
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=85)
-    return buf.getvalue()
-
-
 def render_basic_image(np: NowPlaying, position_ms: int, now_s: float = 0.0) -> Image.Image:
     """No lyrics: big cover, title, artist, progress (RGB Image)."""
     img = _background(np.cover).copy()
@@ -332,22 +318,6 @@ def render_basic_image(np: NowPlaying, position_ms: int, now_s: float = 0.0) -> 
     draw_text(d, (W - text_width(a, 14)) / 2, 188, a, 14, fill=GREY)
     _progress(img, np, position_ms, now_s)
     return img
-
-
-def render_basic(np: NowPlaying, position_ms: int) -> bytes:
-    """No lyrics: big cover, title, artist, progress."""
-    return _jpeg(render_basic_image(np, position_ms))
-
-
-def _header(img: Image.Image, d: ImageDraw.ImageDraw, np: NowPlaying):
-    cover = _cover(np.cover, 52)
-    if cover:
-        img.paste(cover, (PAD, PAD), _mask(52, 8))
-    else:
-        d.rounded_rectangle([PAD, PAD, PAD + 52, PAD + 52], 8, fill=(32, 38, 60))
-    x = PAD + 62
-    draw_text(d, x, PAD + 4, fit(np.title, 16, W - x - PAD, True), 16, True)
-    draw_text(d, x, PAD + 28, fit(np.artist, 13, W - x - PAD), 13, fill=GREY)
 
 
 @lru_cache(maxsize=16)
@@ -707,44 +677,32 @@ def _compose_sheet(
     return ImageChops.multiply(sheet, _edge_fade())
 
 
-def _compose_region(
-    np: NowPlaying,
-    position_ms: int,
-    lyrics: Lyrics | None,
-    karaoke: bool,
-    animator: SheetAnimator | None,
-    now_s: float,
-    region: str,
-) -> tuple[Image.Image, int, int]:
-    if not lyrics or not lyrics.lines:
-        return render_basic_image(np, position_ms, now_s), 0, 0
-    img = _base_screen(np.cover, np.title, np.artist, lyrics.source).copy()
-    sheet = _compose_sheet(lyrics, position_ms, karaoke, animator, now_s)
-    img.paste((255, 255, 255), (0, LYRICS_Y), sheet)
-
-    if region == "lyrics":
-        return img.crop((0, LYRICS_Y, W, LYRICS_Y + LYRICS_H)), 0, LYRICS_Y
-
-    _progress(img, np, position_ms, now_s)
-    if region == "lower":
-        return img.crop((0, LYRICS_Y, W, H)), 0, LYRICS_Y
-    return img, 0, 0
-
-
-def render_frame(
+def render_screen(
     np: NowPlaying,
     position_ms: int,
     lyrics: Lyrics | None,
     karaoke: bool = False,
     animator: SheetAnimator | None = None,
     now_s: float | None = None,
-    region: str = "full",
-) -> tuple[bytes, int, int]:
-    """Render full 240x240 JPEG or dirty-rect JPEG ('lyrics' or 'lower'); returns (jpeg, x, y)."""
+) -> Image.Image:
+    """The whole 240x240 screen at this moment."""
     if now_s is None:
         now_s = time.monotonic()
-    crop, x, y = _compose_region(np, position_ms, lyrics, karaoke, animator, now_s, region)
-    return _jpeg(crop), x, y
+    if not lyrics or not lyrics.lines:
+        return render_basic_image(np, position_ms, now_s)
+    img = _base_screen(np.cover, np.title, np.artist, lyrics.source).copy()
+    sheet = _compose_sheet(lyrics, position_ms, karaoke, animator, now_s)
+    img.paste((255, 255, 255), (0, LYRICS_Y), sheet)
+    _progress(img, np, position_ms, now_s)
+    return img
+
+
+def rgb565(img: Image.Image) -> bytes:
+    """The panel's own pixel format, two bytes each, high byte first."""
+    r, g, b = img.split()
+    high = ImageChops.add(r.point(lambda v: v & 0xF8), g.point(lambda v: v >> 5))
+    low = ImageChops.add(g.point(lambda v: (v & 0x1C) << 3), b.point(lambda v: v >> 3))
+    return Image.merge("LA", (high, low)).tobytes()
 
 
 def render_stream_frame(
@@ -756,12 +714,10 @@ def render_stream_frame(
     now_s: float | None = None,
     previous: Image.Image | None = None,
 ) -> tuple[list[tuple[bytes, int, int, int, int]], Image.Image]:
-    """Zlib RGB888 of the parts that differ from `previous` (what the screen shows now), as
+    """Zlib RGB565 of the parts that differ from `previous` (what the screen shows now), as
     [(payload, x, y, w, h)], and the whole new frame. Less data per frame is what makes motion
     smooth; the ever-moving timeline goes on its own so it does not drag the lyrics along."""
-    if now_s is None:
-        now_s = time.monotonic()
-    frame, _, _ = _compose_region(np, position_ms, lyrics, karaoke, animator, now_s, "full")
+    frame = render_screen(np, position_ms, lyrics, karaoke, animator, now_s)
     if previous is None:
         boxes = [(0, 0, W, H)]
     else:
@@ -776,18 +732,5 @@ def render_stream_frame(
     parts = []
     for box in boxes:
         crop = frame.crop(box)
-        parts.append((zlib.compress(crop.tobytes(), 1), box[0], box[1], crop.width, crop.height))
+        parts.append((zlib.compress(rgb565(crop), 1), box[0], box[1], crop.width, crop.height))
     return parts, frame
-
-
-def render_lyrics(
-    np: NowPlaying,
-    position_ms: int,
-    lyrics: Lyrics | None,
-    karaoke: bool = False,
-    animator: SheetAnimator | None = None,
-    now_s: float | None = None,
-) -> bytes:
-    """Full 240x240 JPEG with Sonora-style animated lyrics."""
-    jpeg, _, _ = render_frame(np, position_ms, lyrics, karaoke, animator, now_s, region="full")
-    return jpeg

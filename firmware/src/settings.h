@@ -19,5 +19,5 @@ void saveSettings();
 void settingsToJson(JsonObject out);
 // Partial update; returns false (and changes nothing) if any given field is invalid.
 bool settingsFromJson(JsonObjectConst in);
-// Enabled source ids in order, for the /frame reply.
+// Enabled source ids in order, for the stream reply.
 void enabledSources(JsonArray out);

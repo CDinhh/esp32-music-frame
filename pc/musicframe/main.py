@@ -14,7 +14,7 @@ from .client import FrameClient
 from .lyrics.motion import SheetAnimator, build_sheet_items
 from .lyrics.sources import SOURCES, fetch_lyrics
 from .media import interpolate, read_now_playing
-from .render import progress_visual, render_frame, render_stream_frame
+from .render import render_screen, render_stream_frame
 
 log = logging.getLogger("musicframe")
 LINE_FPS_S, ANIM_FPS_S = 1.0, 1.0 / 50.0
@@ -40,25 +40,6 @@ def _next_wait(lyrics, pos: int, karaoke: bool, animator: SheetAnimator | None, 
     return wait
 
 
-def packet_for(
-    np,
-    now: float,
-    reply: dict,
-    lyrics,
-    animator: SheetAnimator | None = None,
-    mono_now: float | None = None,
-    region: str = "full",
-) -> tuple[bytes, int, int, float, int]:
-    """JPEG (full or dirty rect), (x, y), wait until next frame, and rendered position_ms."""
-    if mono_now is None:
-        mono_now = time.monotonic()
-    pos = interpolate(np, np.updated_at, now) + int(reply.get("offset_ms", 0))
-    karaoke = bool(reply.get("word_sync")) and bool(lyrics and lyrics.word_synced)
-    jpeg, x, y = render_frame(np, pos, lyrics, karaoke, animator, mono_now, region=region)
-    wait = _next_wait(lyrics, pos, karaoke, animator, mono_now)
-    return jpeg, x, y, wait, pos
-
-
 def stream_packet_for(
     np,
     now: float,
@@ -78,12 +59,6 @@ def stream_packet_for(
     return parts, wait, pos, frame
 
 
-def frame_for(np, now, reply, lyrics, animator: SheetAnimator | None = None, mono_now: float | None = None) -> tuple[bytes, float]:
-    """Full 240x240 JPEG for this moment and how long until the next frame is worth sending."""
-    jpeg, _, _, wait, _ = packet_for(np, now, reply, lyrics, animator, mono_now, region="full")
-    return jpeg, wait
-
-
 async def run(host: str):
     client = FrameClient(host)
     reply = client.settings() or {"offset_ms": 0, "sources": list(SOURCES), "word_sync": False, "music_mode": True}
@@ -93,12 +68,10 @@ async def run(host: str):
     pending: dict[tuple, Future] = {}
     retry_at: dict[tuple, float] = {}
     animator = SheetAnimator()
-    last_static = None
-    last_prog = None
     shown = None  # the frame the screen is showing, so only changes are streamed
     np, read_at = None, 0.0
     lag = 0.02  # seconds from send to pixels on screen, smoothed
-    log.info("sending to http://%s/frame", host)
+    log.info("sending to %s", host)
     while True:
         now = time.time()
         if now - read_at >= 1.0:
@@ -112,8 +85,6 @@ async def run(host: str):
             read_at = now
         if not np or not np.playing:
             shown = None
-            last_static = None
-            last_prog = None
             await asyncio.sleep(0.5)  # nothing sent: the screen returns to its GIF after 5 s
             continue
         title, artist = clean_title(np.title, np.artist)
@@ -132,43 +103,22 @@ async def run(host: str):
             log.info("lyrics: %s", f"{ly.source} ({'word' if ly.word_synced else 'line'})" if ly else "none")
 
         ly = cache.get(key)
-        mono_now = time.monotonic()
-        est_pos = interpolate(np, np.updated_at, now + lag) + int(reply.get("offset_ms", 0))
-        static_key = (title, artist, np.cover, np.duration_ms, ly.source if ly else "")
-        prog_key = progress_visual(np, est_pos) if (ly and ly.lines) else None
-
-        if reply.get("partial") and reply.get("in_music") and last_static == static_key and ly and ly.lines:
-            region = "lyrics" if last_prog == prog_key else "lower"
-        else:
-            region = "full"
-
         sent_at = time.time()
-        stream_port = reply.get("stream")
-        if stream_port:
-            parts, wait, rendered_pos, frame = stream_packet_for(np, now + lag, reply, ly, animator, mono_now, shown)
-            for part in parts:
-                got = client.send_stream(*part, int(stream_port))
-                if got is None:
-                    break
-            # only trust it as "on screen" if the screen says it is showing music
-            shown = frame if got and got.get("music_mode", True) and got.get("in_music", True) else None
-        else:
-            jpeg, x, y, wait, rendered_pos = packet_for(np, now + lag, reply, ly, animator, mono_now, region=region)
-            got = client.send(jpeg, x, y)
+        parts, wait, _, frame = stream_packet_for(np, now + lag, reply, ly, animator, time.monotonic(), shown)
+        port = int(reply.get("stream") or 81)
+        for part in parts:
+            got = client.send_stream(*part, port)
+            if got is None:
+                break
+        # only trust it as "on screen" if the screen says it is showing music
+        shown = frame if got and got.get("music_mode", True) and got.get("in_music", True) else None
         took = time.time() - sent_at
         if got is None:
-            last_static = None
-            last_prog = None
             await asyncio.sleep(2)
             continue
         lag = 0.7 * lag + 0.3 * min(took, 1.0)
         reply = got
-        if reply.get("music_mode", True) and reply.get("in_music", True):
-            last_static = static_key
-            last_prog = progress_visual(np, rendered_pos) if (ly and ly.lines) else None
-        else:
-            last_static = None
-            last_prog = None
+        if shown is None:
             wait = 2.0  # screen ignores frames; keep checking in case it is turned back on
         await asyncio.sleep(max(wait - took, 0.001))  # the send already used part of the wait
 
@@ -181,9 +131,7 @@ async def one_png(path: str):
     np.title, np.artist = title, artist
     lyrics = fetch_lyrics(title, artist, np.duration_ms, list(SOURCES), True)
     print(f"{artist} - {title}: lyrics {lyrics.source if lyrics else 'none'}")
-    jpeg, _ = frame_for(np, time.time(), {"word_sync": True}, lyrics)
-    with open(path, "wb") as f:
-        f.write(jpeg)
+    render_screen(np, interpolate(np, np.updated_at, time.time()), lyrics, True).save(path)
 
 
 def main():

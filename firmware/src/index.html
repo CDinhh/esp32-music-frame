@@ -256,18 +256,36 @@ function kb(n){return n>1048576?(n/1048576).toFixed(1)+" MB":Math.round(n/1024)+
 function confirmDlg(title,text){return new Promise(res=>{const d=$("#dlg");$("#dlgT").textContent=title;$("#dlgP").textContent=text;
   $("#dlgOk").onclick=()=>{d.close();res(true)};$("#dlgNo").onclick=()=>{d.close();res(false)};d.onclose=()=>res(false);d.showModal()})}
 
+// The screen only hands out small thumbnails: sending whole GIFs would stall the music picture.
+const thumbs={};let thumbJob=Promise.resolve();
+async function sendThumb(name,gif){
+  const bmp=await createImageBitmap(gif),k=Math.min(1,160/Math.max(bmp.width,bmp.height));  // first frame
+  const c=document.createElement("canvas");c.width=Math.max(1,Math.round(bmp.width*k));c.height=Math.max(1,Math.round(bmp.height*k));
+  const g=c.getContext("2d");g.fillStyle="#000";g.fillRect(0,0,c.width,c.height);g.drawImage(bmp,0,0,c.width,c.height);
+  const jpg=await new Promise(r=>c.toBlob(r,"image/jpeg",.75)),f=new FormData();f.append("file",jpg,name);
+  thumbs[name]=URL.createObjectURL(jpg);
+  await api("/api/thumbs",{method:"POST",body:f});
+}
+function makeThumb(name,img){  // a GIF without one yet (added by link, or from before): fetch it once, one at a time
+  thumbJob=thumbJob.then(async()=>{
+    if(!thumbs[name]){const r=await fetch("/gifs/"+encodeURIComponent(name));if(!r.ok)return;await sendThumb(name,await r.blob())}
+    img.src=thumbs[name];
+  }).catch(()=>{if(thumbs[name])img.src=thumbs[name]});
+}
+
 async function loadGifs(){
   const j=await api("/api/gifs"),box=$("#gifs");box.innerHTML="";
   $("#free").textContent="Còn trống "+kb(j.free);
   for(const n of j.gifs){
     const el=document.createElement("div");el.className="tile"+(n===j.active?" active":"");el.tabIndex=0;
     el.setAttribute("role","button");el.setAttribute("aria-label","Chiếu "+n);
-    el.innerHTML=`<img alt="" loading="lazy">${n===j.active?'<span class="on-air">Đang chiếu</span>':""}<span class="name"></span><button class="del" type="button" aria-label="Xoá ${n}">${ICON("trash")}</button>`;
-    el.querySelector("img").src="/gifs/"+encodeURIComponent(n);el.querySelector(".name").textContent=n;
+    el.innerHTML=`<img alt="">${n===j.active?'<span class="on-air">Đang chiếu</span>':""}<span class="name"></span><button class="del" type="button" aria-label="Xoá ${n}">${ICON("trash")}</button>`;
+    const img=el.querySelector("img");el.querySelector(".name").textContent=n;
+    if(thumbs[n])img.src=thumbs[n];else if(j.thumbs.includes(n))img.src="/thumbs/"+encodeURIComponent(n.slice(0,-4)+".jpg");else makeThumb(n,img);
     el.onclick=e=>{if(!e.target.closest(".del")&&n!==j.active)save({gif:n}).then(loadGifs)};
     el.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();el.click()}};
     el.querySelector(".del").onclick=async()=>{if(await confirmDlg("Xoá "+n+"?","File bị xoá khỏi bộ nhớ của màn hình."))
-      api("/api/gifs?name="+encodeURIComponent(n),{method:"DELETE"}).then(()=>{toast("Đã xoá "+n);loadGifs()}).catch(e=>toast(e.message,1))};
+      api("/api/gifs?name="+encodeURIComponent(n),{method:"DELETE"}).then(()=>{delete thumbs[n];toast("Đã xoá "+n);loadGifs()}).catch(e=>toast(e.message,1))};
     box.appendChild(el);
   }
   const add=document.createElement("label");add.className="add";add.htmlFor="file";add.tabIndex=0;
@@ -284,7 +302,7 @@ function upload(file){return new Promise((res,rej)=>{
   const x=new XMLHttpRequest(),f=new FormData(),bar=$("#bar");f.append("file",file);bar.hidden=false;
   x.upload.onprogress=e=>bar.firstChild.style.width=(e.loaded/e.total*100)+"%";
   x.onload=()=>{bar.hidden=true;bar.firstChild.style.width=0;
-    if(x.status<300)res();else rej(new Error(file.name+": "+((JSON.parse(x.responseText||"{}").error)||x.status)))};
+    if(x.status<300)res(JSON.parse(x.responseText).name);else rej(new Error(file.name+": "+((JSON.parse(x.responseText||"{}").error)||x.status)))};
   x.onerror=()=>{bar.hidden=true;rej(new Error("Mất kết nối với màn hình"))};
   x.open("POST","/api/gifs");x.send(f)})}
 
@@ -330,7 +348,7 @@ function syncArrows(){const b=$("#gifs"),max=b.scrollWidth-b.clientWidth,[prev,n
 [...$("#arrows").children].forEach((btn,i)=>btn.onclick=()=>$("#gifs").scrollBy({left:(i?1:-1)*($("#gifs").clientWidth-60),behavior:"smooth"}));
 $("#gifs").addEventListener("scroll",syncArrows,{passive:true});addEventListener("resize",syncArrows);
 $("#gifs").addEventListener("wheel",e=>{const b=e.currentTarget;if(b.scrollWidth>b.clientWidth&&Math.abs(e.deltaY)>Math.abs(e.deltaX)){b.scrollLeft+=e.deltaY;e.preventDefault()}},{passive:false});
-$("#file").onchange=async e=>{for(const f of e.target.files){try{await upload(f);toast("Đã thêm "+f.name)}catch(err){toast(err.message,1)}}e.target.value="";loadGifs()};
+$("#file").onchange=async e=>{for(const f of e.target.files){try{const name=await upload(f);delete thumbs[name];await sendThumb(name,f).catch(()=>{});toast("Đã thêm "+f.name)}catch(err){toast(err.message,1)}}e.target.value="";loadGifs()};
 
 async function save(patch){try{S=await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});render()}catch(e){toast(e.message,1)}}
 function saveSoon(patch){clearTimeout(timer);timer=setTimeout(()=>save(patch),300)}

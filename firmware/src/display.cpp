@@ -12,7 +12,8 @@ class LGFX : public lgfx::LGFX_Device {
     auto b = bus.config();
     b.spi_host = SPI2_HOST;
     b.spi_mode = 0;
-    b.freq_write = 40000000;
+    b.freq_write = 80000000;  // faster pushes shrink the tear line (the module has no TE pin to sync on)
+    b.dma_channel = SPI_DMA_CH_AUTO;
     b.pin_sclk = PIN_TFT_SCLK;
     b.pin_mosi = PIN_TFT_MOSI;
     b.pin_miso = -1;

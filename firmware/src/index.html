@@ -80,6 +80,15 @@ input[type=file]::file-selector-button{height:30px;margin-right:10px;padding:0 1
 .stat.bad{border-color:#fbbf2488}
 #hWarn:empty{display:none}
 #hWarn{margin-top:12px}
+.mode{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.mode p{flex:1;min-width:180px}
+.seg{position:relative;display:grid;grid-template-columns:1fr 1fr;padding:4px;border-radius:14px;background:#0005;border:1px solid var(--line);min-width:240px}
+.seg button{position:relative;z-index:1;height:44px;border:0;background:none;color:var(--muted);font:inherit;font-weight:650;font-size:15px;cursor:pointer;border-radius:10px;transition:color .25s}
+.seg button[aria-checked="true"]{color:#1a0f0a}
+.seg button:active{transform:scale(.97)}
+.seg button:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
+.seg .thumb{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 4px 14px #ff7a5944;transition:transform .3s cubic-bezier(.3,.7,.2,1)}
+.seg.gif .thumb{transform:translateX(100%)}
 .log{height:240px;overflow:auto;margin:0;padding:12px 14px;border-radius:12px;background:#0007;border:1px solid var(--line);font:12px/1.6 ui-monospace,Consolas,monospace;color:#cfd6ee;white-space:pre-wrap;word-break:break-word}
 .log .t{color:var(--muted)}
 .log .e{color:#fca5a5}
@@ -103,6 +112,15 @@ dialog .acts{display:flex;justify-content:flex-end;gap:10px}
     <span class="muted" id="free"></span>
   </header>
 
+  <section class="card mode">
+    <div class="seg" role="radiogroup" aria-label="Màn hình hiện gì">
+      <button type="button" role="radio" data-mode="music" aria-checked="false"><span aria-hidden="true">🎵</span> Nhạc</button>
+      <button type="button" role="radio" data-mode="gif" aria-checked="false"><span aria-hidden="true">🖼</span> GIF</button>
+      <i class="thumb" aria-hidden="true"></i>
+    </div>
+    <p class="muted" id="showing"></p>
+  </section>
+
   <section class="card">
     <h2>GIF <small>Bấm để chiếu</small></h2>
     <div class="gifs" id="gifs">
@@ -116,7 +134,6 @@ dialog .acts{display:flex;justify-content:flex-end;gap:10px}
     <section class="card">
       <h2>Màn hình</h2>
       <div class="row"><label for="bright">Độ sáng</label><input id="bright" type="range" min="5" max="100" step="5"><output id="brightV"></output></div>
-      <div class="row"><label for="music">Hiện bài đang phát</label><span class="sw"><input id="music" type="checkbox"><i></i></span></div>
       <div class="row"><label for="word">Lời chạy theo từng chữ</label><span class="sw"><input id="word" type="checkbox"><i></i></span></div>
       <div class="row"><label for="offset">Lệch lời</label><input id="offset" type="range" min="-2000" max="2000" step="100"><output id="offsetV"></output></div>
     </section>
@@ -206,7 +223,7 @@ function saveSoon(patch){clearTimeout(timer);timer=setTimeout(()=>save(patch),30
 
 function render(){
   $("#bright").value=S.brightness;$("#brightV").textContent=S.brightness+"%";
-  $("#music").checked=S.music_mode;$("#word").checked=S.word_sync;
+  setMode(S.music_mode);$("#word").checked=S.word_sync;
   $("#offset").value=S.offset_ms;$("#offsetV").textContent=(S.offset_ms>0?"+":"")+(S.offset_ms/1000).toFixed(1)+" s";
   const box=$("#srcs");box.innerHTML="";
   S.sources.forEach((s,i)=>{
@@ -226,7 +243,8 @@ function move(from,to){if(to<0||to>=S.sources.length||from===to)return;const src
 
 $("#bright").oninput=e=>{$("#brightV").textContent=e.target.value+"%";saveSoon({brightness:+e.target.value})};
 $("#offset").oninput=e=>{const v=+e.target.value;$("#offsetV").textContent=(v>0?"+":"")+(v/1000).toFixed(1)+" s";saveSoon({offset_ms:v})};
-$("#music").onchange=e=>save({music_mode:e.target.checked});
+function setMode(music){document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-checked",String((b.dataset.mode==="music")===music)));$(".seg").classList.toggle("gif",!music)}
+document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{const music=b.dataset.mode==="music";setMode(music);save({music_mode:music}).then(poll)});
 $("#word").onchange=e=>save({word_sync:e.target.checked});
 
 $("#ota").onsubmit=e=>{e.preventDefault();const file=$("#bin").files[0];if(!file)return;
@@ -251,6 +269,7 @@ async function poll(){
     setStat("#hHeap",kb(h.heap_free),h.heap_min<30000);
     setStat("#hReset",RESET[h.reset_reason]||h.reset_reason,["brownout","crash","watchdog"].includes(h.reset_reason));
     setStat("#hBrown",String(h.brownouts),h.reset_reason==="brownout");
+    $("#showing").textContent=h.showing==="music"?"Đang hiện: bài đang phát trên PC":S.music_mode?"Đang hiện: GIF (sẽ chuyển sang nhạc khi PC phát)":"Đang hiện: GIF";
     const b=$("#hBadge");b.textContent=h.ok?"Ổn định":"Cần để ý";b.className="badge "+(h.ok?"ok":"warn");
     $("#hWarn").textContent=h.warnings.map(w=>WARN[w]||w).join(" ");
   }catch{$("#dot").className="";const b=$("#hBadge");b.textContent="Mất kết nối";b.className="badge warn"}

@@ -6,3 +6,5 @@ __pycache__/
 firmware/data/
 .tools/
 .env
+pc-rs/target/
+dist/

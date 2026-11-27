@@ -466,7 +466,7 @@ def test_first_line_starts_at_the_top():
 def test_timeline_shows_wave_up_to_the_playhead_and_a_rail_after_it():
     from musicframe.render import RAIL
     buf = io.BytesIO()
-    Image.new("RGB", (64, 64), (20, 60, 200)).save(buf, "PNG")
+    Image.new("RGB", (64, 64), (200, 30, 30)).save(buf, "PNG")  # a red cover must not recolour the timeline
     im = img(render_basic(NP(pos=100000, cover=buf.getvalue()), 100000)).convert("RGB")
     blue = [x for x in range(45, 195) for y in range(219, 232)
             if (lambda p: p[2] > 180 and p[2] - p[0] > 50)(im.getpixel((x, y)))]

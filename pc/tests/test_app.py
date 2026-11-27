@@ -64,11 +64,11 @@ def test_karaoke_half_sung():
     words = [Word(1000, 2000, "AAAA"), Word(2000, 3000, "BBBB")]
     ly = Lyrics([Line(1000, "AAAABBBB", words)], True, "t")
     im = img(render_lyrics(NP(), 2000, ly, karaoke=True)).convert("RGB")
-    # current line is centred around y~144; left half white, right half grey
-    row = [im.getpixel((x, y)) for y in range(130, 160) for x in range(20, 220)]
+    # the first line rests at the top (y~92..112); left half white, right half grey
+    row = [im.getpixel((x, y)) for y in range(90, 118) for x in range(20, 220)]
     whites = [p for p in row if min(p) > 235]
     assert whites, "sung part should be white"
-    left = max(x for y in range(130, 160) for x in range(20, 220) if min(im.getpixel((x, y))) > 235)
+    left = max(x for y in range(90, 118) for x in range(20, 220) if min(im.getpixel((x, y))) > 235)
     assert left < 125  # nothing past the middle is white yet
 
 
@@ -451,3 +451,10 @@ def test_stream_sends_only_what_changed():
     assert (x, y, w, h) == (239, 239, 1, 1)  # nothing changed: 1x1 keep-alive
     _, x, y, w, h, _ = render_stream_frame(NP(), 30000, ly, now_s=3.0, previous=shown)
     assert y >= 200 and h < 40  # only the timeline moved
+
+
+def test_first_line_starts_at_the_top():
+    from musicframe.render import _compose_sheet
+    ly = Lyrics([Line(i * 1000, "Hello") for i in range(7)], False, "lrc")
+    first = _bands(_compose_sheet(ly, 100, False, None, 1.0))[0]
+    assert first[0] < 30  # no empty half screen above the opening line

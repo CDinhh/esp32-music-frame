@@ -50,6 +50,8 @@ void present() {
 bool fsBegin() {
   if (!LittleFS.begin(true)) return false;
   if (!LittleFS.exists("/gifs")) LittleFS.mkdir("/gifs");
+  LittleFS.remove("/gifs/.tmp");  // leftovers of an upload or download cut by a restart
+  LittleFS.remove("/gifs/.dl");
   gif.begin(GIF_PALETTE_RGB565_BE);
   return true;
 }

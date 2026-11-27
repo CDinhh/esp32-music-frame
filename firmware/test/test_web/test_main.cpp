@@ -8,6 +8,7 @@
 #include "../../src/settings.cpp"
 #include "../../src/health.cpp"
 #include "../../src/log.cpp"
+#include "../../src/fetch.cpp"
 #include "../../src/web.cpp"
 #include "frame_jpg.h"
 
@@ -135,6 +136,16 @@ void test_log_api_returns_new_lines_only() {
   TEST_ASSERT_TRUE(again.body.indexOf("test: marker 42") < 0);  // only lines after `last`
 }
 
+void test_gif_from_url_rejects_bad_input() {
+  const char* bad = "{\"urls\":[\"javascript:alert(1)\"]}";
+  TEST_ASSERT_EQUAL(400, req("POST", "/api/gifs/url", (const uint8_t*)bad, strlen(bad), "application/json").code);
+  const char* none = "{\"urls\":[]}";
+  TEST_ASSERT_EQUAL(400, req("POST", "/api/gifs/url", (const uint8_t*)none, strlen(none), "application/json").code);
+  Resp st = req("GET", "/api/gifs/url");
+  TEST_ASSERT_EQUAL(200, st.code);
+  TEST_ASSERT_TRUE(st.body.indexOf("\"state\":\"idle\"") >= 0);
+}
+
 void test_real_frame_from_pc_app() {  // left on screen for the screenshot check
   Resp r = req("POST", "/frame", FRAME_JPG, sizeof(FRAME_JPG), "image/jpeg");
   TEST_ASSERT_EQUAL(200, r.code);
@@ -160,6 +171,7 @@ static void runTests(void*) {
   RUN_TEST(test_ota_needs_password);
   RUN_TEST(test_health_api);
   RUN_TEST(test_log_api_returns_new_lines_only);
+  RUN_TEST(test_gif_from_url_rejects_bad_input);
   RUN_TEST(test_real_frame_from_pc_app);
   UNITY_END();
   vTaskDelete(nullptr);

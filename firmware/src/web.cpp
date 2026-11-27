@@ -3,8 +3,10 @@
 #include <LittleFS.h>
 #include <Update.h>
 #include <WebServer.h>
+#include <WiFi.h>
 #include "display.h"
 #include "gif_player.h"
+#include "fetch.h"
 #include "health.h"
 #include "log.h"
 #include "settings.h"
@@ -100,6 +102,32 @@ void onGifUploadDone() {
   JsonDocument d;
   d["name"] = up.name;
   sendJson(201, d);
+}
+
+// ---------- GIF from a link ----------
+void onGifFromUrl() {
+  JsonDocument in;
+  if (deserializeJson(in, server.arg("plain"))) return sendError(400, "invalid JSON");
+  JsonArrayConst list = in["urls"];
+  std::vector<String> urls;
+  for (JsonVariantConst u : list) {
+    const char* s = u | "";
+    if (!validUrl(s)) return sendError(400, "bad link");
+    urls.push_back(s);
+  }
+  if (urls.empty() || urls.size() > 6) return sendError(400, "bad link");
+  std::string wanted = in["name"] | "";
+  std::string name = sanitizeName(wanted.empty() ? urls[0].substring(urls[0].lastIndexOf('/') + 1).c_str() : wanted);
+  if (name.empty()) name = "gif.gif";
+  if (WiFi.status() != WL_CONNECTED) return sendError(503, "screen is offline");
+  if (!fetchStart(urls, name.c_str())) return sendError(409, "another download is running");
+  server.send(202, "application/json", "{\"state\":\"downloading\"}");
+}
+
+void onGifFromUrlStatus() {
+  JsonDocument d;
+  fetchToJson(d.to<JsonObject>());
+  sendJson(200, d);
 }
 
 void onGifList() {
@@ -253,6 +281,8 @@ void webBegin() {
   server.on("/api/gifs", HTTP_GET, onGifList);
   server.on("/api/gifs", HTTP_POST, onGifUploadDone, onGifUpload);
   server.on("/api/gifs", HTTP_DELETE, onGifDelete);
+  server.on("/api/gifs/url", HTTP_POST, onGifFromUrl);
+  server.on("/api/gifs/url", HTTP_GET, onGifFromUrlStatus);
   server.on("/api/settings", HTTP_GET, onSettingsGet);
   server.on("/api/settings", HTTP_POST, onSettingsPost);
   server.on("/api/health", HTTP_GET, [] {

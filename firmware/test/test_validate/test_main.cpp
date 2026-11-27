@@ -37,6 +37,17 @@ void test_sources() {
   TEST_ASSERT_FALSE(validSources({"lrclib", "lrclib"}));
 }
 
+void test_urls() {
+  TEST_ASSERT_TRUE(validUrl("https://media.giphy.com/media/abc/giphy.gif"));
+  TEST_ASSERT_TRUE(validUrl("http://example.com/a.gif"));
+  TEST_ASSERT_FALSE(validUrl("ftp://example.com/a.gif"));
+  TEST_ASSERT_FALSE(validUrl("https://"));
+  TEST_ASSERT_FALSE(validUrl("https:///path"));
+  TEST_ASSERT_FALSE(validUrl("https://a.com/with space.gif"));
+  TEST_ASSERT_FALSE(validUrl("javascript:alert(1)"));
+  TEST_ASSERT_FALSE(validUrl(std::string("https://a.com/") + std::string(600, 'x')));
+}
+
 void setup() {
   delay(500);
   UNITY_BEGIN();
@@ -44,6 +55,7 @@ void setup() {
   RUN_TEST(test_gif_header_and_dims);
   RUN_TEST(test_jpeg);
   RUN_TEST(test_sources);
+  RUN_TEST(test_urls);
   UNITY_END();
 }
 

@@ -77,7 +77,7 @@ Thêm GIF ngay trong mục **Thư viện GIF**: bấm **Thêm GIF** để chọn
 
 1. Mở nhạc trên máy tính: Spotify, YouTube trên trình duyệt, Sonora, hay bất kỳ app nào hiện trong ô điều khiển nhạc của Windows (ô hiện ra khi bấm nút tăng giảm âm lượng).
 2. Chạy app trên máy tính, chọn **một** trong hai:
-   - **`MusicFrame.exe`** (nhẹ, không cần Python): bấm đúp là chạy. App không có cửa sổ, chỉ có icon nốt nhạc ở khay hệ thống; bấm vào icon để mở trang web, xem nhật ký hoặc thoát. Windows có thể hỏi "Windows protected your PC" vì file chưa ký: bấm **More info** → **Run anyway**.
+   - **`MusicFrame.exe`** (nhẹ, không cần Python): [tải ở trang Releases](https://github.com/CDinhh/esp32-music-frame/releases/latest) rồi bấm đúp là chạy. App không có cửa sổ, chỉ có icon nốt nhạc ở khay hệ thống; bấm vào icon để mở trang web, xem nhật ký hoặc thoát. Windows có thể hỏi "Windows protected your PC" vì file chưa ký: bấm **More info** → **Run anyway**.
    - **`3-run-app.cmd`** (bản Python): một cửa sổ đen nhỏ mở ra, **cứ để nó chạy**, đóng cửa sổ là tắt.
 3. Trên trang web, chọn **Nhạc** ở góc trên. Màn chuyển sang ảnh bìa + lời bài hát; dừng nhạc khoảng 5 giây thì màn tự quay về GIF.
 

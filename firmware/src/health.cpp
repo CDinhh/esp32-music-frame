@@ -5,6 +5,7 @@
 #include <esp_system.h>
 #include "gif_player.h"
 #include "log.h"
+#include "web.h"
 
 namespace {
 esp_reset_reason_t bootReason = ESP_RST_UNKNOWN;
@@ -59,4 +60,5 @@ void healthToJson(JsonObject out) {
   if (rssi && rssi < -80) warn.add("weak_wifi");
   if (ESP.getMinFreeHeap() < 30000) warn.add("low_memory");
   out["ok"] = warn.size() == 0;
+  out["showing"] = musicActive() ? "music" : "gif";
 }

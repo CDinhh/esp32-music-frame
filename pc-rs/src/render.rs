@@ -8,6 +8,7 @@ use crate::motion::{
 use crate::text;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub const W: usize = 240;
 pub const H: usize = 240;
@@ -423,15 +424,24 @@ fn break_block(progress: f64, past: bool) -> Gray {
     mask
 }
 
-/// Scale a supersampled block and put its text origin at the (fractional) point x, y.
+/// A scaled block and where it goes on the sheet.
+type Placed = Option<(Gray, isize, isize)>;
+
 fn stamp(sheet: &mut Gray, block: &Gray, x: f64, y: f64, scale: f64, blur: f64, alpha: f64) {
+    if let Some((small, ox, oy)) = place(block, x, y, scale, blur, alpha) {
+        sheet.lighten(&small, ox, oy);
+    }
+}
+
+/// Scale a supersampled block so that its text origin lands at the (fractional) point x, y.
+fn place(block: &Gray, x: f64, y: f64, scale: f64, blur: f64, alpha: f64) -> Placed {
     let f = scale / SS;
     let e = EDGE as f64;
     let (mut ox, mut oy) = ((x - e * f).ceil(), (y - e * f).ceil());
     let (u, v) = ((e - (x - ox) / f).max(0.0), (e - (y - oy) / f).max(0.0));
     let (w, h) = (((block.w as f64 - u) * f) as isize, ((block.h as f64 - v) * f) as isize);
     if w <= 0 || h <= 0 {
-        return;
+        return None;
     }
     let mut small = block.resample([u, v, u + w as f64 / f, v + h as f64 / f], w as usize, h as usize, Filter::Hamming);
     if blur > 0.0 {
@@ -444,7 +454,7 @@ fn stamp(sheet: &mut Gray, block: &Gray, x: f64, y: f64, scale: f64, blur: f64, 
     if alpha < 0.995 {
         small.scale_values(alpha);
     }
-    sheet.lighten(&small, ox as isize, oy as isize);
+    Some((small, ox as isize, oy as isize))
 }
 
 fn edge_fade() -> Vec<u8> {
@@ -462,6 +472,8 @@ struct Sheet {
     plans: Vec<Option<Plan>>,
     heights: Vec<f64>,
     blocks: HashMap<usize, Rc<Gray>>,
+    /// rows as last drawn, keyed by what they were drawn with: most rows stand still between frames
+    placed: HashMap<usize, ([u64; 4], Placed)>,
 }
 
 impl Sheet {
@@ -477,7 +489,7 @@ impl Sheet {
             })
             .collect();
         let heights = plans.iter().map(|p| p.as_ref().map_or(BREAK_H, |p| p.rows.len() * p.lh) as f64).collect();
-        Self { id: lyrics.id, items, plans, heights, blocks: HashMap::new() }
+        Self { id: lyrics.id, items, plans, heights, blocks: HashMap::new(), placed: HashMap::new() }
     }
 }
 
@@ -493,7 +505,7 @@ fn compose_sheet(
     let animate = animator.is_some();
     let mut still = SheetAnimator::new();
     let animator = animator.unwrap_or(&mut still);
-    let Sheet { items, plans, heights, blocks, .. } = sheet_data;
+    let Sheet { items, plans, heights, blocks, placed, .. } = sheet_data;
     let count = items.len();
 
     let ease = move |since: f64| if animate { ease_out_expo((now_s - since) / TRANSITION_S) } else { 1.0 };
@@ -579,7 +591,13 @@ fn compose_sheet(
             let lit = karaoke_block(plan, &mask, base * veil, (1.0 - fade) * veil, pos_ms, sung_end, is_active);
             stamp(&mut sheet, &lit, PAD as f64, top, scales[r], blur, 1.0);
         } else {
-            stamp(&mut sheet, &mask, PAD as f64, top, scales[r], blur, base * veil);
+            let key = [top, scales[r], blur, base * veil].map(f64::to_bits);
+            if placed.get(&r).is_none_or(|p| p.0 != key) {
+                placed.insert(r, (key, place(&mask, PAD as f64, top, scales[r], blur, base * veil)));
+            }
+            if let Some((_, Some((small, ox, oy)))) = placed.get(&r) {
+                sheet.lighten(small, *ox, *oy);
+            }
         }
     }
     sheet.multiply_rows(&edge_fade());
@@ -591,6 +609,8 @@ type SongKey = (u64, String, String, String);
 /// Draws screens, keeping what does not change between frames.
 #[derive(Default)]
 pub struct Renderer {
+    /// the last cover seen and its hash: hashing the whole picture every frame costs CPU
+    seen: Option<(Arc<Vec<u8>>, u64)>,
     /// blurred cover behind everything, by cover
     back: Option<(u64, Rgb)>,
     /// static pixels of the current screen, by (cover, title, artist, source)
@@ -617,7 +637,15 @@ impl Renderer {
         now_s: f64,
     ) -> Rgb {
         let cover = np.cover.as_ref().map(|c| c.as_slice());
-        let cover_key = hash(cover);
+        let cover_key = match (&np.cover, &self.seen) {
+            (Some(now), Some((last, key))) if Arc::ptr_eq(now, last) => *key,
+            (Some(now), _) => {
+                let key = hash(cover);
+                self.seen = Some((now.clone(), key));
+                key
+            }
+            (None, _) => hash(None),
+        };
         let lyrics = lyrics.filter(|l| !l.lines.is_empty());
         let source = lyrics.map_or(String::new(), |l| l.source.clone());
         let kind = if lyrics.is_some() { source.clone() } else { "\0basic".into() };

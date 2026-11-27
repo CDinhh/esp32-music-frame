@@ -7,6 +7,7 @@ from ..model import Line, Lyrics, Word
 # Physical springs (stiffness, damping) from Sonora (crates/ui/src/motion.rs)
 SCROLL_SPRING = (170.0, 23.0)
 ROW_SPRING = (210.0, 22.0)
+TOP_REST_PX = 16  # the opening lines rest this far below the top instead of being centred
 LAG_STAGGER = 0.35
 LAG_TRAIL = 0.9
 LAG_STALL = 0.064
@@ -386,7 +387,8 @@ class SheetAnimator:
 
         def aim():
             tops, heights = layout(self)
-            return tops, heights, (tops[goal_idx] + heights[goal_idx] * 0.5 - anchor_y if items else 0.0)
+            centred = tops[goal_idx] + heights[goal_idx] * 0.5 - anchor_y if items else 0.0
+            return tops, heights, max(centred, -TOP_REST_PX)
 
         is_new_sheet = key != self.lyrics_key
         jumped_far = self.active_row >= 0 and target_row >= 0 and abs(target_row - self.active_row) > 2

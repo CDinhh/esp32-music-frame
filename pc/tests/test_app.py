@@ -64,11 +64,11 @@ def test_karaoke_half_sung():
     words = [Word(1000, 2000, "AAAA"), Word(2000, 3000, "BBBB")]
     ly = Lyrics([Line(1000, "AAAABBBB", words)], True, "t")
     im = img(render_lyrics(NP(), 2000, ly, karaoke=True)).convert("RGB")
-    # current line is centred around y~114; left half white, right half grey
-    row = [im.getpixel((x, y)) for y in range(100, 135) for x in range(20, 220)]
+    # current line is centred around y~144; left half white, right half grey
+    row = [im.getpixel((x, y)) for y in range(130, 160) for x in range(20, 220)]
     whites = [p for p in row if min(p) > 235]
     assert whites, "sung part should be white"
-    left = max(x for y in range(100, 135) for x in range(20, 220) if min(im.getpixel((x, y))) > 235)
+    left = max(x for y in range(130, 160) for x in range(20, 220) if min(im.getpixel((x, y))) > 235)
     assert left < 125  # nothing past the middle is white yet
 
 
@@ -237,11 +237,11 @@ def test_stream_frame_and_tcp_protocol():
     import struct
     import threading
     import zlib
-    from musicframe.render import LYRICS_H, LYRICS_Y, render_stream_frame
+    from musicframe.render import render_stream_frame
 
     ly = Lyrics([Line(0, "Hello"), Line(2000, "World")], False, "lrc")
-    payload, x, y, w, h = render_stream_frame(NP(), 500, ly, region="lyrics")
-    assert (x, y, w, h) == (0, LYRICS_Y, 240, LYRICS_H)
+    payload, x, y, w, h, shown = render_stream_frame(NP(), 500, ly)
+    assert (x, y, w, h) == (0, 0, 240, 240)
     raw = zlib.decompress(payload)
     assert len(raw) == w * h * 3
 
@@ -407,3 +407,47 @@ def test_config_reads_env(tmp_path):
     c = load(f)
     assert c["SCREEN_HOST"] == "192.168.1.5" and c["WIFI_PASS"] == "p=a#ss" and "BROKEN" not in c
     assert load(tmp_path / "missing.env") == {}
+
+
+def _bands(mask):
+    """(top, bottom) of each run of lit rows in an L image."""
+    rows = [mask.crop((0, y, mask.width, y + 1)).getextrema()[1] > 25 for y in range(mask.height)]
+    out, start = [], None
+    for y, on in enumerate(rows + [False]):
+        if on and start is None:
+            start = y
+        elif not on and start is not None:
+            out.append((start, y))
+            start = None
+    return out
+
+
+def test_active_line_is_centred_and_lines_are_evenly_spaced():
+    from musicframe.render import LYRICS_H, _compose_sheet
+    ly = Lyrics([Line(i * 1000, "Hello") for i in range(7)], False, "lrc")
+    centres = [(a + b) / 2 for a, b in _bands(_compose_sheet(ly, 3100, False, None, 1.0))]
+    mid = min(centres, key=lambda c: abs(c - LYRICS_H / 2))
+    assert abs(mid - LYRICS_H / 2) <= 2.5
+    i = centres.index(mid)
+    assert abs((centres[i] - centres[i - 1]) - (centres[i + 1] - centres[i])) <= 1.5
+
+
+def test_rows_trail_behind_the_scroll():
+    from musicframe.lyrics.motion import SheetAnimator, build_sheet_items
+    ly = Lyrics([Line(i * 1000, "x") for i in range(8)], False, "lrc")
+    items, anim = build_sheet_items(ly.lines), SheetAnimator()
+    layout = lambda a: ([i * 30.0 for i in range(8)], [20.0] * 8)
+    anim.step(ly, items, layout, 68, 136, 2100, 1.0)
+    anim.step(ly, items, layout, 68, 136, 3100, 1.03)
+    anim.step(ly, items, layout, 68, 136, 3100, 1.06)
+    assert anim.row_drifts and all(d[0] >= 0 for d in anim.row_drifts.values())  # drawn below their place
+
+
+def test_stream_sends_only_what_changed():
+    from musicframe.render import render_stream_frame
+    ly = Lyrics([Line(0, "Hello")], False, "lrc")
+    *_, shown = render_stream_frame(NP(), 5000, ly, now_s=1.0)
+    _, x, y, w, h, shown = render_stream_frame(NP(), 5000, ly, now_s=2.0, previous=shown)
+    assert (x, y, w, h) == (239, 239, 1, 1)  # nothing changed: 1x1 keep-alive
+    _, x, y, w, h, _ = render_stream_frame(NP(), 30000, ly, now_s=3.0, previous=shown)
+    assert y >= 200 and h < 40  # only the timeline moved

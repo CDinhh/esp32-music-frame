@@ -9,7 +9,7 @@ SCROLL_SPRING = (170.0, 23.0)
 ROW_SPRING = (210.0, 22.0)
 LAG_STAGGER = 0.35
 LAG_TRAIL = 0.9
-LAG_STALL = 0.15
+LAG_STALL = 0.064
 LAG_LEAST = 0.15
 SCROLL_REST_PX = 0.2
 SCROLL_REST_VEL = 1.0
@@ -372,17 +372,21 @@ class SheetAnimator:
         self,
         lyrics: Lyrics,
         items: list[SheetItem],
-        row_tops: list[float],
-        row_heights: list[float],
+        layout,  # layout(animator) -> (row_tops, row_heights) for the current line sizes
         anchor_y: float,
+        view_h: float,
         pos_ms: int,
         now_s: float,
         animate: bool = True,
-    ) -> None:
+    ) -> tuple[list[float], list[float]]:
+        """Advance the motion; the row being sung is centred on anchor_y. Returns the layout."""
         key = (id(lyrics), lyrics.source, len(lyrics.lines), lyrics.lines[0].text if lyrics.lines else "")
         target_row = active_sheet_row(items, pos_ms)
         goal_idx = target_row if target_row >= 0 else 0
-        goal_y = row_tops[goal_idx] - anchor_y if items else 0.0
+
+        def aim():
+            tops, heights = layout(self)
+            return tops, heights, (tops[goal_idx] + heights[goal_idx] * 0.5 - anchor_y if items else 0.0)
 
         is_new_sheet = key != self.lyrics_key
         jumped_far = self.active_row >= 0 and target_row >= 0 and abs(target_row - self.active_row) > 2
@@ -393,17 +397,17 @@ class SheetAnimator:
             self.departing_row = None
             self.arrived_at = now_s - TRANSITION_S
             self.departed_at = now_s - TRANSITION_S
+            row_tops, row_heights, goal_y = aim()
             self.scroll_y = goal_y
             self.scroll_vel = 0.0
             self.goal_y = goal_y
             self.row_drifts.clear()
             self.last_time = now_s
             self.settled = True
-            return
+            return row_tops, row_heights
 
         dt = clamp(now_s - self.last_time, 0.0, LAG_STALL)
         self.last_time = now_s
-        self.goal_y = goal_y
 
         if target_row != self.active_row:
             if self.active_row >= 0:
@@ -416,6 +420,8 @@ class SheetAnimator:
         if self.departing_row is not None and (now_s - self.departed_at) >= TRANSITION_S:
             self.departing_row = None
 
+        row_tops, row_heights, goal_y = aim()
+        self.goal_y = goal_y
         prev_scroll = self.scroll_y
         self.scroll_y, self.scroll_vel = step_spring(
             self.scroll_y, self.scroll_vel, goal_y, SCROLL_SPRING[0], SCROLL_SPRING[1], dt
@@ -428,10 +434,9 @@ class SheetAnimator:
             self.scroll_vel = 0.0
 
         # Cascading row lag (Sonora's iMessage-like stagger)
-        view_h = max(anchor_y * 2.5, 1.0)
         most_lag = view_h * 0.28
         for r_idx in range(len(items)):
-            screen_y = row_tops[r_idx] - self.scroll_y + view_h * 0.5
+            screen_y = row_tops[r_idx] - self.scroll_y
             if screen_y + row_heights[r_idx] < -40 or screen_y > view_h + 40:
                 self.row_drifts.pop(r_idx, None)
                 continue
@@ -443,7 +448,7 @@ class SheetAnimator:
                 if abs(scroll_step) < 0.01:
                     continue
                 st = [0.0, 0.0]
-            st[0] = clamp(st[0] - scroll_step * LAG_TRAIL * along, -most_lag, most_lag)
+            st[0] = clamp(st[0] + scroll_step * LAG_TRAIL * along, -most_lag, most_lag)
             k, c = lag_spring(along)
             st[0], st[1] = step_spring(st[0], st[1], 0.0, k, c, dt)
             if abs(st[0]) < LAG_LEAST and abs(st[1]) < ROW_REST_VEL:
@@ -458,6 +463,7 @@ class SheetAnimator:
             and self.departing_row is None
             and (now_s - self.arrived_at) >= TRANSITION_S
         )
+        return row_tops, row_heights
 
     def is_animating(self, items: list[SheetItem], pos_ms: int, now_s: float, karaoke: bool) -> bool:
         if not self.settled:

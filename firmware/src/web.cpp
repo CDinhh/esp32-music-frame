@@ -6,6 +6,7 @@
 #include "display.h"
 #include "gif_player.h"
 #include "health.h"
+#include "log.h"
 #include "settings.h"
 #include "validate.h"
 
@@ -90,8 +91,12 @@ void onGifUpload() {
 
 void onGifUploadDone() {
   if (!isMultipart()) return sendError(400, "expected multipart upload");
-  if (up.error) return sendError(up.error, up.msg);
+  if (up.error) {
+    logf("upload: rejected (%s)", up.msg);
+    return sendError(up.error, up.msg);
+  }
   if (up.size == 0) return sendError(400, "no file");
+  logf("upload: saved %s (%u KB)", up.name.c_str(), (unsigned)(up.size / 1024));
   JsonDocument d;
   d["name"] = up.name;
   sendJson(201, d);
@@ -115,6 +120,7 @@ void onGifDelete() {
   bool wasActive = settings().gif == name.c_str();
   if (wasActive) gifClose();
   LittleFS.remove(path);
+  logf("gif: deleted %s", name.c_str());
   if (wasActive) {
     auto list = gifList();
     settings().gif = "";
@@ -166,7 +172,11 @@ void onUpdateUpload() {
   if (u.status == UPLOAD_FILE_START) {
     otaError = "";
     otaAuthed = server.header("X-OTA-Password") == OTA_PASSWORD;
-    if (!otaAuthed) return;
+    if (!otaAuthed) {
+      logf("ota: wrong password, ignored");
+      return;
+    }
+    logf("ota: receiving firmware");
     gifClose();
     if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) otaError = Update.errorString();
   } else if (u.status == UPLOAD_FILE_WRITE) {
@@ -183,10 +193,12 @@ void onUpdateUpload() {
 void onUpdateDone() {
   if (!otaAuthed) return sendError(401, "wrong password");
   if (!otaError.isEmpty()) {
+    logf("ota: failed (%s), keeping current firmware", otaError.c_str());
     Update.abort();  // keep running the current app
     gifChanged = true;
     return sendError(500, otaError.c_str());
   }
+  logf("ota: done, restarting");
   server.send(200, "application/json", "{\"ok\":true}");
   delay(300);
   ESP.restart();
@@ -216,7 +228,10 @@ void onFrameDone() {
   if (frameTooBig) return sendError(413, "frame larger than 100 KB");
   if (!isJpeg(frameBuf, frameLen)) return sendError(400, "not a JPEG");
   if (settings().musicMode) {
-    if (!inMusic) gifClose();
+    if (!inMusic) {
+      gifClose();
+      logf("music: showing now playing");
+    }
     inMusic = true;
     lastFrameMs = millis();
     display().drawJpg(frameBuf, frameLen, 0, 0);
@@ -245,6 +260,11 @@ void webBegin() {
     healthToJson(d.to<JsonObject>());
     sendJson(200, d);
   });
+  server.on("/api/log", HTTP_GET, [] {
+    JsonDocument d;
+    logToJson(d.to<JsonObject>(), server.arg("since").toInt());
+    sendJson(200, d);
+  });
   server.on("/update", HTTP_POST, onUpdateDone, onUpdateUpload);
   server.on("/frame", HTTP_POST, onFrameDone, onFrameRaw);
   server.serveStatic("/gifs/", LittleFS, "/gifs/", "max-age=60");
@@ -257,6 +277,7 @@ void webLoop() {
   if (inMusic && millis() - lastFrameMs > 5000) {
     inMusic = false;
     gifChanged = true;
+    logf("music: no frames for 5 s, back to GIF");
   }
 }
 

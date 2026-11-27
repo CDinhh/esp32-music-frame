@@ -80,6 +80,10 @@ input[type=file]::file-selector-button{height:30px;margin-right:10px;padding:0 1
 .stat.bad{border-color:#fbbf2488}
 #hWarn:empty{display:none}
 #hWarn{margin-top:12px}
+.log{height:240px;overflow:auto;margin:0;padding:12px 14px;border-radius:12px;background:#0007;border:1px solid var(--line);font:12px/1.6 ui-monospace,Consolas,monospace;color:#cfd6ee;white-space:pre-wrap;word-break:break-word}
+.log .t{color:var(--muted)}
+.log .e{color:#fca5a5}
+.btn.sm{height:32px;padding:0 12px;font-size:13px}
 dialog{border:1px solid var(--line);border-radius:var(--r);padding:22px;background:#141a2ef2;color:var(--ink);backdrop-filter:blur(20px);max-width:340px;width:calc(100% - 32px)}
 dialog::backdrop{background:#0009;backdrop-filter:blur(4px)}
 dialog[open]{animation:pop .2s ease-out}
@@ -134,6 +138,11 @@ dialog .acts{display:flex;justify-content:flex-end;gap:10px}
       <div class="stat"><span>Số lần sụt nguồn</span><b id="hBrown">–</b></div>
     </div>
     <p class="muted" id="hWarn"></p>
+  </section>
+
+  <section class="card">
+    <h2>Nhật ký <button class="btn ghost sm" id="logCopy" type="button">Sao chép</button></h2>
+    <pre class="log" id="log" aria-live="polite"></pre>
   </section>
 
   <section class="card">
@@ -246,7 +255,26 @@ async function poll(){
     $("#hWarn").textContent=h.warnings.map(w=>WARN[w]||w).join(" ");
   }catch{$("#dot").className="";const b=$("#hBadge");b.textContent="Mất kết nối";b.className="badge warn"}
 }
-(async()=>{try{S=await api("/api/settings");render();await loadGifs();$("#dot").className="on"}catch(e){toast("Không kết nối được màn hình",1)}poll();setInterval(poll,5000)})();
+let logSeq=0;
+function upClock(ms){const s=Math.floor(ms/1000);return [Math.floor(s/3600),Math.floor(s%3600/60),s%60].map(v=>String(v).padStart(2,"0")).join(":")}
+async function pollLog(){
+  try{
+    const j=await api("/api/log?since="+logSeq),box=$("#log");
+    if(j.last<logSeq){logSeq=0;box.textContent="";return pollLog()}  // device restarted: start over
+    const atEnd=box.scrollTop+box.clientHeight>=box.scrollHeight-8;
+    for(const l of j.lines){
+      const row=document.createElement("div"),t=document.createElement("span");
+      t.className="t";t.textContent=upClock(l.ms)+"  ";row.append(t,l.text);
+      if(/error|fail|crash|brownout|disconnected|rejected|wrong/i.test(l.text))row.className="e";
+      box.appendChild(row);logSeq=l.seq;
+    }
+    while(box.childElementCount>400)box.firstChild.remove();
+    if(atEnd)box.scrollTop=box.scrollHeight;
+  }catch{}
+}
+$("#logCopy").onclick=()=>{const text=[...$("#log").children].map(r=>r.textContent).join(String.fromCharCode(10));
+  (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).then(()=>toast("Đã sao chép nhật ký"),()=>{const r=document.createRange();r.selectNodeContents($("#log"));getSelection().removeAllRanges();getSelection().addRange(r);toast("Đã chọn nhật ký, bấm Ctrl+C")})};
+(async()=>{pollLog();setInterval(pollLog,1000);try{S=await api("/api/settings");render();await loadGifs();$("#dot").className="on"}catch(e){toast("Không kết nối được màn hình",1)}poll();setInterval(poll,5000)})();
 </script>
 </body>
 </html>

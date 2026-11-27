@@ -7,6 +7,7 @@
 #include "../../src/gif_player.cpp"
 #include "../../src/settings.cpp"
 #include "../../src/health.cpp"
+#include "../../src/log.cpp"
 #include "../../src/web.cpp"
 #include "frame_jpg.h"
 
@@ -121,6 +122,19 @@ void test_health_api() {
   TEST_ASSERT_EQUAL(d["ok"].as<bool>(), d["warnings"].size() == 0);
 }
 
+void test_log_api_returns_new_lines_only() {
+  logf("test: marker %d", 42);
+  Resp r = req("GET", "/api/log?since=0");
+  TEST_ASSERT_EQUAL(200, r.code);
+  TEST_ASSERT_TRUE(r.body.indexOf("test: marker 42") >= 0);
+  JsonDocument d;
+  deserializeJson(d, r.body);
+  uint32_t last = d["last"];
+  TEST_ASSERT_TRUE(last > 0);
+  Resp again = req("GET", String("/api/log?since=") + last);
+  TEST_ASSERT_TRUE(again.body.indexOf("test: marker 42") < 0);  // only lines after `last`
+}
+
 void test_real_frame_from_pc_app() {  // left on screen for the screenshot check
   Resp r = req("POST", "/frame", FRAME_JPG, sizeof(FRAME_JPG), "image/jpeg");
   TEST_ASSERT_EQUAL(200, r.code);
@@ -145,6 +159,7 @@ static void runTests(void*) {
   RUN_TEST(test_frame_endpoint);
   RUN_TEST(test_ota_needs_password);
   RUN_TEST(test_health_api);
+  RUN_TEST(test_log_api_returns_new_lines_only);
   RUN_TEST(test_real_frame_from_pc_app);
   UNITY_END();
   vTaskDelete(nullptr);
@@ -152,6 +167,7 @@ static void runTests(void*) {
 
 void setup() {
   delay(300);
+  logBegin();
   healthBegin();
   displayBegin();
   loadSettings();

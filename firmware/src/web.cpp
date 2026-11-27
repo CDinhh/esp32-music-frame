@@ -41,6 +41,9 @@ void sendError(int code, const char* msg) {
   sendJson(code, d);
 }
 
+// "cat.gif" -> "/thumbs/cat.jpg": the small picture the web page shows instead of the whole GIF
+String thumbPath(const String& gif) { return "/thumbs/" + gif.substring(0, gif.length() - 4) + ".jpg"; }
+
 // ---------- GIF upload ----------
 struct Upload {
   String name;
@@ -86,6 +89,7 @@ void onGifUpload() {
     up.f.close();
     String path = "/gifs/" + up.name;
     LittleFS.remove(path);
+    LittleFS.remove(thumbPath(up.name));  // belongs to the picture that was just replaced
     if (!LittleFS.rename("/gifs/.tmp", path)) failUpload(500, "cannot save");
   } else if (u.status == UPLOAD_FILE_ABORTED) {
     failUpload(400, "upload aborted");
@@ -103,6 +107,63 @@ void onGifUploadDone() {
   JsonDocument d;
   d["name"] = up.name;
   sendJson(201, d);
+}
+
+// ---------- thumbnails ----------
+// A few KB, so it is collected in RAM and written once. The file name is the GIF it belongs to.
+std::vector<uint8_t> thumbData;
+Upload thumb;
+
+void onThumbUpload() {
+  if (!isMultipart()) {
+    thumb = Upload();
+    thumb.error = 400;
+    thumb.msg = "expected multipart upload";
+    return;
+  }
+  HTTPUpload& u = server.upload();
+  if (u.status == UPLOAD_FILE_START) {
+    thumb = Upload();
+    thumbData.clear();
+    std::string name = u.filename.c_str();
+    thumb.name = name.c_str();
+    if (name.empty() || sanitizeName(name) != name) {
+      thumb.error = 400;
+      thumb.msg = "bad file name";
+    } else if (!LittleFS.exists("/gifs/" + thumb.name)) {
+      thumb.error = 404;
+      thumb.msg = "GIF not found";
+    }
+  } else if (u.status == UPLOAD_FILE_WRITE) {
+    if (thumb.error) return;
+    if (thumbData.size() + u.currentSize > THUMB_MAX_BYTES) {
+      thumb.error = 413;
+      thumb.msg = "thumbnail too large";
+      return;
+    }
+    thumbData.insert(thumbData.end(), u.buf, u.buf + u.currentSize);
+  } else if (u.status == UPLOAD_FILE_END) {
+    if (thumb.error) return;
+    if (!isJpeg(thumbData.data(), thumbData.size())) {
+      thumb.error = 400;
+      thumb.msg = "not a JPEG";
+      return;
+    }
+    File f = LittleFS.open(thumbPath(thumb.name), "w");
+    if (!f || f.write(thumbData.data(), thumbData.size()) != thumbData.size()) {
+      thumb.error = 507;
+      thumb.msg = "storage full";
+    }
+    thumb.size = thumbData.size();
+  }
+}
+
+void onThumbDone() {
+  std::vector<uint8_t>().swap(thumbData);
+  if (!isMultipart()) return sendError(400, "expected multipart upload");
+  if (thumb.error) return sendError(thumb.error, thumb.msg);
+  if (thumb.size == 0) return sendError(400, "no file");
+  server.send(201, "application/json", "{\"ok\":true}");
 }
 
 // ---------- GIF from a link ----------
@@ -134,8 +195,12 @@ void onGifFromUrlStatus() {
 void onGifList() {
   JsonDocument d;
   JsonArray arr = d["gifs"].to<JsonArray>();
-  for (auto& n : gifList())
-    if (!n.startsWith(".")) arr.add(n);
+  JsonArray thumbs = d["thumbs"].to<JsonArray>();  // the GIFs that already have a thumbnail
+  for (auto& n : gifList()) {
+    if (n.startsWith(".")) continue;
+    arr.add(n);
+    if (LittleFS.exists(thumbPath(n))) thumbs.add(n);
+  }
   d["active"] = settings().gif;
   d["free"] = fsFree();
   sendJson(200, d);
@@ -149,6 +214,7 @@ void onGifDelete() {
   bool wasActive = settings().gif == name.c_str();
   if (wasActive) gifClose();
   LittleFS.remove(path);
+  LittleFS.remove(thumbPath(name.c_str()));
   logf("gif: deleted %s", name.c_str());
   if (wasActive) {
     auto list = gifList();
@@ -165,7 +231,6 @@ void onGifDelete() {
 void onSettingsGet() {
   JsonDocument d;
   settingsToJson(d.to<JsonObject>());
-  d["partial"] = true;
   d["in_music"] = inMusic;
   d["stream"] = 81;
   sendJson(200, d);
@@ -240,20 +305,15 @@ void onUpdateDone() {
 }
 
 // ---------- music frames ----------
-constexpr size_t STREAM_MAX_BYTES = SCREEN * SCREEN * 3 + 1024;
-uint8_t* frameBuf = nullptr;
+constexpr size_t STREAM_MAX_BYTES = SCREEN * SCREEN * 2 + 1024;
 uint8_t* streamBuf = nullptr;
-uint8_t* rawBuf = nullptr;
 uint16_t* dmaBuf = nullptr;
 tinfl_decompressor* decomp = nullptr;
-size_t frameLen = 0;
-bool frameTooBig = false;
 
 void fillFrameReply(JsonDocument& d) {
   d["offset_ms"] = settings().offsetMs;
   d["word_sync"] = settings().wordSync;
   d["music_mode"] = settings().musicMode;
-  d["partial"] = true;
   d["in_music"] = inMusic;
   d["stream"] = 81;
   enabledSources(d["sources"].to<JsonArray>());
@@ -279,7 +339,7 @@ bool readExact(WiFiClient& c, uint8_t* dst, size_t n, uint32_t timeoutMs) {
 }
 
 void handleStream() {
-  if (!streamBuf || !rawBuf || !dmaBuf || !decomp) return;
+  if (!streamBuf || !dmaBuf || !decomp) return;
   if (streamServer.hasClient()) {
     if (streamClient) streamClient.stop();
     streamClient = streamServer.accept();
@@ -289,7 +349,7 @@ void handleStream() {
 
   uint8_t hdr[14];
   if (!readExact(streamClient, hdr, 14, 200)) { streamClient.stop(); return; }
-  if (hdr[0] != 'M' || hdr[1] != 'F') {
+  if (hdr[0] != 'M' || hdr[1] != '6') {  // "M6": 16-bit pixels
     logf("stream: bad magic");
     streamClient.stop();
     return;
@@ -310,12 +370,15 @@ void handleStream() {
     return;
   }
 
-  size_t want = (size_t)w * h * 3;
+  // The pixels arrive as the panel wants them (RGB565, high byte first): inflate straight into the DMA buffer.
+  size_t want = (size_t)w * h * 2;
   size_t inLen = len;
   size_t outLen = want;
+  display().waitDMA();  // the last frame may still be going out of this buffer
   tinfl_init(decomp);
+  uint8_t* out565 = (uint8_t*)dmaBuf;
   tinfl_status st = tinfl_decompress(
-      decomp, streamBuf, &inLen, rawBuf, rawBuf, &outLen,
+      decomp, streamBuf, &inLen, out565, out565, &outLen,
       TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
   if (st != TINFL_STATUS_DONE || outLen != want) {
     logf("stream: inflate err=%d (%u/%u)", (int)st, (unsigned)outLen, (unsigned)want);
@@ -330,14 +393,6 @@ void handleStream() {
     }
     inMusic = true;
     lastFrameMs = millis();
-    display().waitDMA();
-    const uint8_t* src = rawBuf;
-    size_t px = (size_t)w * h;
-    for (size_t i = 0; i < px; i++) {
-      uint16_t c = ((src[0] & 0xF8) << 8) | ((src[1] & 0xFC) << 3) | (src[2] >> 3);
-      dmaBuf[i] = (uint16_t)((c >> 8) | (c << 8));
-      src += 3;
-    }
     display().pushImageDMA(x, y, w, h, (lgfx::swap565_t*)dmaBuf);
   }
   JsonDocument d;
@@ -348,59 +403,23 @@ void handleStream() {
   streamClient.write((const uint8_t*)out.c_str(), out.length());
 }
 
-void onFrameRaw() {
-  HTTPRaw& r = server.raw();
-  if (r.status == RAW_START) {
-    frameLen = 0;
-    frameTooBig = false;
-  } else if (r.status == RAW_WRITE) {
-    if (frameLen + r.currentSize > FRAME_MAX_BYTES) {
-      frameTooBig = true;
-      return;
-    }
-    memcpy(frameBuf + frameLen, r.buf, r.currentSize);
-    frameLen += r.currentSize;
-  }
-}
-
-void onFrameDone() {
-  if (frameTooBig) return sendError(413, "frame larger than 100 KB");
-  if (!isJpeg(frameBuf, frameLen)) return sendError(400, "not a JPEG");
-  int x = server.hasHeader("X-Frame-X") ? server.header("X-Frame-X").toInt() : 0;
-  int y = server.hasHeader("X-Frame-Y") ? server.header("X-Frame-Y").toInt() : 0;
-  if (x < 0 || x >= SCREEN || y < 0 || y >= SCREEN) return sendError(400, "bad frame rect");
-  if (settings().musicMode && (inMusic || (x == 0 && y == 0))) {
-    if (!inMusic) {
-      gifClose();
-      logf("music: showing now playing");
-    }
-    inMusic = true;
-    lastFrameMs = millis();
-    display().waitDMA();
-    display().drawJpg(frameBuf, frameLen, x, y);
-  }
-  JsonDocument d;
-  fillFrameReply(d);
-  sendJson(200, d);
-}
 }  // namespace
 
 void webBegin() {
-  frameBuf = (uint8_t*)ps_malloc(FRAME_MAX_BYTES);
   streamBuf = (uint8_t*)ps_malloc(STREAM_MAX_BYTES);
-  rawBuf = (uint8_t*)ps_malloc(SCREEN * SCREEN * 3);
   dmaBuf = (uint16_t*)ps_malloc(SCREEN * SCREEN * 2);
   decomp = (tinfl_decompressor*)malloc(sizeof(tinfl_decompressor));
-  if (!frameBuf || !streamBuf || !rawBuf || !dmaBuf || !decomp)
+  if (!streamBuf || !dmaBuf || !decomp)
     logf("mem: stream alloc failed");
-  const char* headers[] = {"X-OTA-Password", "Content-Type", "X-Frame-X", "X-Frame-Y"};
-  server.collectHeaders(headers, 4);
+  const char* headers[] = {"X-OTA-Password", "Content-Type"};
+  server.collectHeaders(headers, 2);
   server.on("/", HTTP_GET, [] { server.send(200, "text/html; charset=utf-8", index_html_start); });
   server.on("/api/gifs", HTTP_GET, onGifList);
   server.on("/api/gifs", HTTP_POST, onGifUploadDone, onGifUpload);
   server.on("/api/gifs", HTTP_DELETE, onGifDelete);
   server.on("/api/gifs/url", HTTP_POST, onGifFromUrl);
   server.on("/api/gifs/url", HTTP_GET, onGifFromUrlStatus);
+  server.on("/api/thumbs", HTTP_POST, onThumbDone, onThumbUpload);
   server.on("/api/settings", HTTP_GET, onSettingsGet);
   server.on("/api/settings", HTTP_POST, onSettingsPost);
   server.on("/api/health", HTTP_GET, [] {
@@ -414,8 +433,8 @@ void webBegin() {
     sendJson(200, d);
   });
   server.on("/update", HTTP_POST, onUpdateDone, onUpdateUpload);
-  server.on("/frame", HTTP_POST, onFrameDone, onFrameRaw);
   server.serveStatic("/gifs/", LittleFS, "/gifs/", "max-age=60");
+  server.serveStatic("/thumbs/", LittleFS, "/thumbs/", "max-age=60");
   server.onNotFound([] { sendError(404, "not found"); });
   server.begin();
   streamServer.begin();

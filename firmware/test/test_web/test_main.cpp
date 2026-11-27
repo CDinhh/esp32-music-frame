@@ -10,7 +10,7 @@
 #include "../../src/log.cpp"
 #include "../../src/fetch.cpp"
 #include "../../src/web.cpp"
-#include "frame_jpg.h"
+#include "frame_565.h"
 
 static const char* BASE = "http://127.0.0.1";
 // 1x1 GIF89a
@@ -97,21 +97,63 @@ void test_select_and_delete_active_falls_back() {
   TEST_ASSERT_EQUAL(404, req("DELETE", "/api/gifs?name=nope.gif").code);
 }
 
-void test_frame_endpoint() {
-  TEST_ASSERT_EQUAL(400, req("POST", "/frame", PNG, sizeof(PNG), "image/jpeg").code);
-  static uint8_t big[FRAME_MAX_BYTES + 10];
-  big[0] = 0xFF;
-  big[1] = 0xD8;
-  TEST_ASSERT_EQUAL(413, req("POST", "/frame", big, sizeof(big), "image/jpeg").code);
-  Resp r = req("POST", "/frame", big, 1000, "image/jpeg");  // valid header, junk body: drawn as garbage, never a crash
-  TEST_ASSERT_EQUAL(200, r.code);
-  TEST_ASSERT_TRUE(r.body.indexOf("\"offset_ms\"") >= 0);
-  TEST_ASSERT_TRUE(r.body.indexOf("\"partial\":true") >= 0);
-  TEST_ASSERT_TRUE(r.body.indexOf("\"in_music\":true") >= 0);
-  TEST_ASSERT_TRUE(r.body.indexOf("\"sources\":[") >= 0);
-  TEST_ASSERT_TRUE(musicActive());
-  TEST_ASSERT_EQUAL(200, req("POST", "/frame", big, 1000, "image/jpeg", "X-Frame-Y", "72").code);
-  TEST_ASSERT_EQUAL(400, req("POST", "/frame", big, 1000, "image/jpeg", "X-Frame-X", "300").code);
+// Sends one rect to the stream port; returns the reply line, "" if the screen hung up.
+static String stream(const char* magic, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* data, uint32_t len) {
+  WiFiClient c;
+  if (!c.connect("127.0.0.1", 81)) return "";
+  uint8_t hdr[14] = {(uint8_t)magic[0], (uint8_t)magic[1]};
+  const uint16_t rect[4] = {x, y, w, h};
+  memcpy(hdr + 2, rect, 8);
+  memcpy(hdr + 10, &len, 4);
+  c.write(hdr, 14);
+  c.write(data, len);
+  String line;  // delay() while waiting: a busy read on core 0 trips the task watchdog
+  for (uint32_t t0 = millis(); millis() - t0 < 5000;) {
+    if (c.available()) {
+      char ch = c.read();
+      if (ch == '\n') break;
+      line += ch;
+    } else if (!c.connected()) {
+      break;
+    } else {
+      delay(5);
+    }
+  }
+  c.stop();
+  return line;
+}
+
+// 1x1 red pixel, zlib
+static const uint8_t PIXEL[] = {0x78, 0x01, 0xfb, 0xc1, 0x00, 0x00, 0x01, 0xf2, 0x00, 0xf9};
+
+void test_stream_rejects_bad_input() {
+  TEST_ASSERT_EQUAL_STRING("", stream("MF", 0, 0, 1, 1, PIXEL, sizeof(PIXEL)).c_str());   // old 24-bit app
+  TEST_ASSERT_EQUAL_STRING("", stream("M6", 240, 0, 1, 1, PIXEL, sizeof(PIXEL)).c_str());  // outside the screen
+  TEST_ASSERT_EQUAL_STRING("", stream("M6", 0, 0, 2, 1, PIXEL, sizeof(PIXEL)).c_str());    // too few pixels
+  TEST_ASSERT_FALSE(musicActive());
+}
+
+void test_stream_part_waits_for_a_full_screen() {
+  String r = stream("M6", 239, 239, 1, 1, PIXEL, sizeof(PIXEL));
+  TEST_ASSERT_TRUE_MESSAGE(r.indexOf("\"in_music\":false") >= 0, r.c_str());
+  TEST_ASSERT_TRUE(r.indexOf("\"offset_ms\"") >= 0);
+  TEST_ASSERT_TRUE(r.indexOf("\"sources\":[") >= 0);
+}
+
+void test_thumbnails() {
+  static const uint8_t JPG[] = {0xFF, 0xD8, 0xFF, 0xD9};
+  multipart("/api/gifs", "file", "thumbed.gif", GIF1, sizeof(GIF1));
+  TEST_ASSERT_EQUAL(404, multipart("/api/thumbs", "file", "nope.gif", JPG, sizeof(JPG)).code);
+  TEST_ASSERT_EQUAL(400, multipart("/api/thumbs", "file", "thumbed.gif", PNG, sizeof(PNG)).code);
+  static uint8_t big[THUMB_MAX_BYTES + 10] = {0xFF, 0xD8};
+  TEST_ASSERT_EQUAL(413, multipart("/api/thumbs", "file", "thumbed.gif", big, sizeof(big)).code);
+  TEST_ASSERT_FALSE(LittleFS.exists("/thumbs/thumbed.jpg"));
+  Resp r = multipart("/api/thumbs", "file", "thumbed.gif", JPG, sizeof(JPG));
+  TEST_ASSERT_EQUAL_MESSAGE(201, r.code, r.body.c_str());
+  TEST_ASSERT_EQUAL(200, req("GET", "/thumbs/thumbed.jpg").code);
+  TEST_ASSERT_TRUE(req("GET", "/api/gifs").body.indexOf("\"thumbs\":[\"thumbed.gif\"]") >= 0);
+  TEST_ASSERT_EQUAL(200, req("DELETE", "/api/gifs?name=thumbed.gif").code);
+  TEST_ASSERT_FALSE(LittleFS.exists("/thumbs/thumbed.jpg"));
 }
 
 void test_health_api() {
@@ -151,8 +193,9 @@ void test_gif_from_url_rejects_bad_input() {
 }
 
 void test_real_frame_from_pc_app() {  // left on screen for the screenshot check
-  Resp r = req("POST", "/frame", FRAME_JPG, sizeof(FRAME_JPG), "image/jpeg");
-  TEST_ASSERT_EQUAL(200, r.code);
+  String r = stream("M6", 0, 0, 240, 240, FRAME_565, sizeof(FRAME_565));
+  TEST_ASSERT_TRUE_MESSAGE(r.indexOf("\"in_music\":true") >= 0, r.c_str());
+  TEST_ASSERT_TRUE(musicActive());
 }
 
 void test_ota_needs_password() {
@@ -171,7 +214,9 @@ static void runTests(void*) {
   RUN_TEST(test_upload_rejects_png_and_leaves_nothing);
   RUN_TEST(test_raw_body_to_upload_route_is_rejected);
   RUN_TEST(test_select_and_delete_active_falls_back);
-  RUN_TEST(test_frame_endpoint);
+  RUN_TEST(test_thumbnails);
+  RUN_TEST(test_stream_rejects_bad_input);
+  RUN_TEST(test_stream_part_waits_for_a_full_screen);
   RUN_TEST(test_ota_needs_password);
   RUN_TEST(test_health_api);
   RUN_TEST(test_log_api_returns_new_lines_only);

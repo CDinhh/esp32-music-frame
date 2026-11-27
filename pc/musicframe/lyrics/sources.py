@@ -97,14 +97,14 @@ class _Mxm:
             r = self._raw("token.get", user_language="en")
             token = r["message"]["body"]["user_token"]
             if not token or set(token) <= {"0"}:  # all-zero token = refused / captcha
-                self.blocked_until = time.time() + 600
+                self.blocked_until = time.time() + 3600
                 raise RuntimeError("musixmatch refused a token")
             self.token = token
         body = self._raw(method, usertoken=self.token, **params)
         status = body["message"]["header"]["status_code"]
         if status in (401, 402):  # token expired or captcha
             self.token = None
-            self.blocked_until = time.time() + 600
+            self.blocked_until = time.time() + 3600
             raise RuntimeError("musixmatch refused")
         return body["message"]["body"]
 
@@ -117,6 +117,8 @@ _mxm = _Mxm()
 
 
 def musixmatch(title: str, artist: str, duration_ms: int) -> Lyrics | None:
+    if time.time() < _mxm.blocked_until:  # refused a moment ago: stay quiet instead of failing on every song
+        return None
     body = _mxm.call("matcher.track.get", q_track=title, q_artist=artist)
     track = (body or {}).get("track") if isinstance(body, dict) else None
     if not track or not fits(track.get("track_length", 0) * 1000, duration_ms):

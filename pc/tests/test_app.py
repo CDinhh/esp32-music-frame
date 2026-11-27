@@ -9,24 +9,25 @@ from musicframe.client import FrameClient
 from musicframe.lyrics.lrc import line_index, parse_lrc
 from musicframe.lyrics.sources import fetch_lyrics
 from musicframe.lyrics.wordsync import _KRC_KEY, decode_krc, parse_krc, parse_richsync, parse_yrc
-from musicframe.main import frame_for
+from musicframe.main import _next_wait
 from musicframe.media import interpolate
 from musicframe.model import Line, Lyrics, NowPlaying, Word
-from musicframe.render import fit, pick_font, render_basic, render_lyrics, text_width, wrap
+from musicframe.render import fit, pick_font, render_screen, rgb565, text_width, wrap
 
 
 def NP(title="Song", artist="Artist", dur=200000, pos=0, playing=True, cover=None):
     return NowPlaying(title, artist, dur, pos, playing, cover)
 
 
-def img(jpeg):
-    return Image.open(io.BytesIO(jpeg))
+def wait_for(np, ly, word=False, anim=None, now=1.0):
+    """Draw the frame the app would draw at np.position_ms, then ask how long it would sleep."""
+    render_screen(np, np.position_ms, ly, word and ly.word_synced, anim, now)
+    return _next_wait(ly, np.position_ms, word and ly.word_synced, anim, now)
 
 
 # ---- render ----
-def test_render_is_240_jpeg():
-    im = img(render_basic(NP(), 60000))
-    assert im.size == (240, 240) and im.format == "JPEG"
+def test_screen_is_240():
+    assert render_screen(NP(), 60000, None).size == (240, 240)
 
 
 def test_fit_long_title():
@@ -50,20 +51,19 @@ def test_wrap_cjk_and_mixed_fit_width():
 def test_render_with_cover_bytes():
     buf = io.BytesIO()
     Image.new("RGB", (300, 300), (200, 30, 30)).save(buf, "PNG")
-    im = img(render_basic(NP(cover=buf.getvalue()), 0)).convert("RGB")
+    im = render_screen(NP(cover=buf.getvalue()), 0, None)
     r, g, b = im.getpixel((120, 80))  # inside the cover
     assert r > 150 and g < 80
 
 
 def test_render_no_lyrics_falls_back_to_basic():
-    assert img(render_lyrics(NP(), 0, None)).size == (240, 240)
-    assert img(render_lyrics(NP(), 0, Lyrics([], False, "x"))).size == (240, 240)
+    assert render_screen(NP(), 0, Lyrics([], False, "x"), now_s=1.0).tobytes() == render_screen(NP(), 0, None, now_s=1.0).tobytes()
 
 
 def test_karaoke_half_sung():
     words = [Word(1000, 2000, "AAAA"), Word(2000, 3000, "BBBB")]
     ly = Lyrics([Line(1000, "AAAABBBB", words)], True, "t")
-    im = img(render_lyrics(NP(), 2000, ly, karaoke=True)).convert("RGB")
+    im = render_screen(NP(), 2000, ly, karaoke=True)
     # the first line rests at the top (y~92..112); left half white, right half grey
     row = [im.getpixel((x, y)) for y in range(90, 118) for x in range(20, 220)]
     whites = [p for p in row if min(p) > 235]
@@ -81,25 +81,13 @@ def test_interpolate_clamps_and_pauses():
 
 # ---- client ----
 def test_client_offline_returns_none():
-    assert FrameClient("127.0.0.1:9").send(b"\xff\xd8") is None
+    assert FrameClient("127.0.0.1").send_stream(b"x", 0, 0, 1, 1, port=9) is None
 
 
-def test_client_sends_rect_headers(monkeypatch):
-    c = FrameClient("127.0.0.1")
-    sent = {}
-
-    class Resp:
-        def raise_for_status(self): pass
-        def json(self): return {"ok": True}
-
-    def fake_post(url, data, headers, timeout):
-        sent["url"], sent["headers"] = url, headers
-        return Resp()
-
-    monkeypatch.setattr(c.session, "post", fake_post)
-    c.send(b"\xff\xd8", 0, 72)
-    assert sent["url"].endswith("/frame")
-    assert sent["headers"]["X-Frame-X"] == "0" and sent["headers"]["X-Frame-Y"] == "72"
+def test_rgb565_matches_the_panel_format():
+    im = Image.new("RGB", (3, 1))
+    im.putdata([(255, 0, 0), (0, 255, 0), (8, 12, 255)])
+    assert rgb565(im) == bytes([0xF8, 0x00, 0x07, 0xE0, 0x08, 0x7F])
 
 
 # ---- lyrics ----
@@ -164,31 +152,24 @@ def test_parse_richsync_words():
 def test_frame_timing_line_vs_word():
     from musicframe.main import ANIM_FPS_S
     ly = Lyrics([Line(0, "a", [Word(0, 500, "a")]), Line(1300, "b", [Word(1300, 2000, "b")])], True, "t")
-    np = NP(pos=1000)
-    _, wait = frame_for(np, np.updated_at, {"word_sync": False}, ly)
-    assert abs(wait - 0.3) < 0.01  # wakes when the next line starts
-    _, wait = frame_for(np, np.updated_at, {"word_sync": True}, ly)
-    assert wait == ANIM_FPS_S
+    assert abs(wait_for(NP(pos=1000), ly) - 0.3) < 0.01  # wakes when the next line starts
+    assert wait_for(NP(pos=1000), ly, word=True) == ANIM_FPS_S
 
 
 def test_line_scroll_animates_even_without_word_sync():
     from musicframe.lyrics.motion import SheetAnimator
-    from musicframe.main import ANIM_FPS_S, frame_for
+    from musicframe.main import ANIM_FPS_S
     ly = Lyrics([Line(0, "Line one"), Line(2000, "Line two"), Line(6000, "Line three")], False, "lrc")
     anim = SheetAnimator()
-    np = NP(pos=500)
     # First frame snaps to line 0
-    _, wait = frame_for(np, np.updated_at, {"word_sync": False}, ly, anim, mono_now=1.0)
-    assert wait == 1.0
+    assert wait_for(NP(pos=500), ly, anim=anim, now=1.0) == 1.0
     # Advancing to line 1 triggers spring scroll + transition animation even with word_sync=False
-    np2 = NP(pos=2050)
-    _, wait = frame_for(np2, np2.updated_at, {"word_sync": False}, ly, anim, mono_now=1.03)
-    assert wait == ANIM_FPS_S and not anim.settled
+    assert wait_for(NP(pos=2050), ly, anim=anim, now=1.03) == ANIM_FPS_S and not anim.settled
     # After ~1.0s of stepping, spring settles back to idle wait
     t = 1.03
     for _ in range(35):
         t += 0.03
-        _, wait = frame_for(np2, np2.updated_at, {"word_sync": False}, ly, anim, mono_now=t)
+        wait = wait_for(NP(pos=2050), ly, anim=anim, now=t)
     assert anim.settled and wait == 1.0
 
 
@@ -209,15 +190,6 @@ def test_monotone_pchip_and_timed_units():
     l_units = timed_units(lat, 20.0)
     assert l_units[0].group == l_units[1].group  # "Hi" rises together
     assert l_units[3].group == l_units[4].group and l_units[3].group > l_units[0].group
-
-
-def test_render_frame_dirty_rects_and_instrumental_break():
-    from musicframe.render import LYRICS_H, LYRICS_Y, render_frame
-    ly = Lyrics([Line(6000, "After intro")], False, "lrc")
-    jpeg_lyrics, x, y = render_frame(NP(), 3000, ly, region="lyrics")
-    assert (x, y) == (0, LYRICS_Y) and img(jpeg_lyrics).size == (240, LYRICS_H)
-    jpeg_lower, x2, y2 = render_frame(NP(), 3000, ly, region="lower")
-    assert (x2, y2) == (0, LYRICS_Y) and img(jpeg_lower).size == (240, 240 - LYRICS_Y)
 
 
 def test_haze_blurs_inactive_lines_progressively():
@@ -243,7 +215,7 @@ def test_stream_frame_and_tcp_protocol():
     [(payload, x, y, w, h)], shown = render_stream_frame(NP(), 500, ly)
     assert (x, y, w, h) == (0, 0, 240, 240)
     raw = zlib.decompress(payload)
-    assert len(raw) == w * h * 3
+    assert len(raw) == w * h * 2 and raw == rgb565(shown)
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.bind(("127.0.0.1", 0))
@@ -254,12 +226,12 @@ def test_stream_frame_and_tcp_protocol():
         conn, _ = srv.accept()
         hdr = conn.recv(14)
         magic, sx, sy, sw, sh, slen = struct.unpack("<2sHHHHI", hdr)
-        assert (magic, sx, sy, sw, sh, slen) == (b"MF", x, y, w, h, len(payload))
+        assert (magic, sx, sy, sw, sh, slen) == (b"M6", x, y, w, h, len(payload))
         body = b""
         while len(body) < slen:
             body += conn.recv(slen - len(body))
         assert body == payload
-        conn.sendall((json.dumps({"offset_ms": 0, "word_sync": False, "music_mode": True, "in_music": True, "partial": True, "stream": port}) + "\n").encode())
+        conn.sendall((json.dumps({"offset_ms": 0, "word_sync": False, "music_mode": True, "in_music": True, "stream": port}) + "\n").encode())
         conn.close()
         srv.close()
 
@@ -467,8 +439,26 @@ def test_timeline_shows_wave_up_to_the_playhead_and_a_rail_after_it():
     from musicframe.render import RAIL
     buf = io.BytesIO()
     Image.new("RGB", (64, 64), (200, 30, 30)).save(buf, "PNG")  # a red cover must not recolour the timeline
-    im = img(render_basic(NP(pos=100000, cover=buf.getvalue()), 100000)).convert("RGB")
+    im = render_screen(NP(pos=100000, cover=buf.getvalue()), 100000, None, now_s=1.0)
     blue = [x for x in range(45, 195) for y in range(219, 232)
             if (lambda p: p[2] > 180 and p[2] - p[0] > 50)(im.getpixel((x, y)))]
     assert blue and max(blue) < 130  # the wave stops at the half-way knob
     assert all(abs(a - b) < 20 for a, b in zip(im.getpixel((160, 225)), RAIL))  # remaining time is clearly drawn
+
+
+def test_clean_title_finds_the_original_of_a_cover():
+    assert clean_title("Lana Del Rey - Say Yes To Heaven cover", "Mina") == ("Say Yes To Heaven", "Lana Del Rey")
+    assert clean_title("Djo - End of Beginning / Acoustic Cover", "Lime") == ("End of Beginning", "Djo")
+    assert clean_title("Conan gray - Heather (cover)", "someone") == ("Heather", "Conan gray")
+    assert clean_title("Heather (Cover by Mina)", "Mina") == ("Heather", "Mina")
+    assert clean_title("Djo - Under Cover of Darkness", "Djo") == ("Under Cover of Darkness", "Djo")
+    assert clean_title("Cover Me", "Artist") == ("Cover Me", "Artist")
+    assert clean_title("Undercover", "Artist") == ("Undercover", "Artist")
+
+
+def test_musixmatch_is_silent_while_backing_off(monkeypatch):
+    from musicframe.lyrics import sources
+
+    monkeypatch.setattr(sources._mxm, "blocked_until", float("inf"))
+    monkeypatch.setattr(sources, "_get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no request")))
+    assert sources.musixmatch("s", "a", 1000) is None

@@ -8,7 +8,7 @@
 
 constexpr size_t GIF_MAX_BYTES = 2 * 1024 * 1024;
 constexpr int GIF_MAX_DIM = 480;
-constexpr size_t FRAME_MAX_BYTES = 100 * 1024;
+constexpr size_t THUMB_MAX_BYTES = 16 * 1024;
 inline const char* const SOURCE_IDS[] = {"ytmusic", "lrcred", "lrclib", "netease", "kugou", "musixmatch"};
 constexpr size_t SOURCE_COUNT = sizeof(SOURCE_IDS) / sizeof(SOURCE_IDS[0]);
 

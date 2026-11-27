@@ -2,6 +2,7 @@
 #include <AnimatedGIF.h>
 #include <LittleFS.h>
 #include "display.h"
+#include "log.h"
 
 namespace {
 AnimatedGIF gif;
@@ -84,7 +85,7 @@ bool gifOpen(const String& name) {
   if (name.isEmpty()) return false;
   String path = "/gifs/" + name;
   if (!LittleFS.exists(path) || !gif.open(path.c_str(), cbOpen, cbClose, cbRead, cbSeek, cbDraw)) {
-    Serial.printf("gif: cannot open %s\n", path.c_str());
+    logf("gif: cannot open %s", path.c_str());
     return false;
   }
   cw = gif.getCanvasWidth();
@@ -120,7 +121,7 @@ void gifTick() {
   int delayMs = 0;
   int r = gif.playFrame(false, &delayMs);
   if (r < 0 || gif.getLastError() > GIF_EMPTY_FRAME) {  // corrupt data: stop, keep device alive
-    Serial.printf("gif: decode error %d\n", gif.getLastError());
+    logf("gif: decode error %d, stopped", gif.getLastError());
     gifClose();
     display().fillScreen(TFT_BLACK);
     return;

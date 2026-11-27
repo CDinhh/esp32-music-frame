@@ -3,6 +3,7 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include "display.h"
+#include "log.h"
 #include "gif_player.h"
 #include "health.h"
 #include "settings.h"
@@ -49,13 +50,20 @@ void setup() {
 #if ARDUINO_USB_CDC_ON_BOOT
   Serial.setTxTimeoutMs(0);  // never block when no console is reading
 #endif
+  logBegin();
   healthBegin();
   displayBegin();
   loadSettings();
   setBacklight(settings().brightness);
-  if (!fsBegin()) Serial.println("fs: mount failed");
+  if (!fsBegin()) logf("fs: mount failed");
 
   showStatus("Music Frame", "connecting WiFi...");
+  WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t info) {
+    if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED)
+      logf("wifi: disconnected (reason %d)", info.wifi_sta_disconnected.reason);
+    else if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP)
+      logf("wifi: got IP %s", IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
+  });
   WiFi.mode(WIFI_STA);
   WiFi.setHostname("musicframe");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -63,16 +71,17 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     MDNS.begin("musicframe");
     MDNS.addService("http", "tcp", 80);
-    Serial.printf("wifi: %s\n", WiFi.localIP().toString().c_str());
+    logf("wifi: connected, %s, %d dBm", WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
     showStatus("musicframe.local", WiFi.localIP().toString());
     delay(3000);
   } else {
-    Serial.println("wifi: not connected, retrying in background");
+    logf("wifi: not connected, retrying in background");
     WiFi.setAutoReconnect(true);
   }
   webBegin();
   String g = activeGif();
-  Serial.printf("gif: %s -> %s\n", g.c_str(), gifOpen(g) ? "ok" : "fail");
+  bool playing = gifOpen(g);
+  logf("gif: %s", playing ? g.c_str() : "none to play");
 }
 
 void loop() {

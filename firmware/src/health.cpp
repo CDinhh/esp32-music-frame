@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <esp_system.h>
 #include "gif_player.h"
+#include "log.h"
 
 namespace {
 esp_reset_reason_t bootReason = ESP_RST_UNKNOWN;
@@ -33,6 +34,7 @@ void healthBegin() {
   brownouts = p.getUInt("brownouts", 0);
   if (bootReason == ESP_RST_BROWNOUT) p.putUInt("brownouts", ++brownouts);
   p.end();
+  logf("boot: reason %s, power dips so far %u", reasonId(bootReason), (unsigned)brownouts);
 }
 
 void healthToJson(JsonObject out) {

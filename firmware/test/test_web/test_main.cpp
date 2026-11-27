@@ -6,6 +6,7 @@
 #include "../../src/display.cpp"
 #include "../../src/gif_player.cpp"
 #include "../../src/settings.cpp"
+#include "../../src/health.cpp"
 #include "../../src/web.cpp"
 #include "frame_jpg.h"
 
@@ -107,6 +108,19 @@ void test_frame_endpoint() {
   TEST_ASSERT_TRUE(musicActive());
 }
 
+void test_health_api() {
+  Resp r = req("GET", "/api/health");
+  TEST_ASSERT_EQUAL(200, r.code);
+  JsonDocument d;
+  TEST_ASSERT_FALSE(deserializeJson(d, r.body));
+  TEST_ASSERT_TRUE(d["temp_c"].is<float>());
+  TEST_ASSERT_TRUE(d["heap_free"].as<uint32_t>() > 0);
+  TEST_ASSERT_TRUE(d["uptime_s"].is<uint32_t>());
+  TEST_ASSERT_TRUE(d["reset_reason"].is<const char*>());
+  TEST_ASSERT_TRUE(d["warnings"].is<JsonArray>());
+  TEST_ASSERT_EQUAL(d["ok"].as<bool>(), d["warnings"].size() == 0);
+}
+
 void test_real_frame_from_pc_app() {  // left on screen for the screenshot check
   Resp r = req("POST", "/frame", FRAME_JPG, sizeof(FRAME_JPG), "image/jpeg");
   TEST_ASSERT_EQUAL(200, r.code);
@@ -130,6 +144,7 @@ static void runTests(void*) {
   RUN_TEST(test_select_and_delete_active_falls_back);
   RUN_TEST(test_frame_endpoint);
   RUN_TEST(test_ota_needs_password);
+  RUN_TEST(test_health_api);
   RUN_TEST(test_real_frame_from_pc_app);
   UNITY_END();
   vTaskDelete(nullptr);
@@ -137,6 +152,7 @@ static void runTests(void*) {
 
 void setup() {
   delay(300);
+  healthBegin();
   displayBegin();
   loadSettings();
   TEST_ASSERT_TRUE(fsBegin());

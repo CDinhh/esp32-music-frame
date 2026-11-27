@@ -1,7 +1,9 @@
 """Draws the whole 240x240 music screen (or dirty lyric region) as a JPEG, so the ESP32 needs no fonts or layout."""
+import colorsys
 import io
 import math
 import os
+import random
 import time
 import zlib
 from dataclasses import dataclass
@@ -19,6 +21,7 @@ from .lyrics.motion import (
     clamp,
     ease_out_cubic,
     ease_out_expo,
+    mix_color,
     monotone,
     own_sung_end,
     pace_limit,
@@ -247,32 +250,69 @@ def clock(ms: int) -> str:
     return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
 
 
+ACCENT = (255, 122, 89)  # used when the cover has no colour of its own
+BARS_Y = 225             # vertical middle of the timeline
+
+
+@lru_cache(maxsize=8)
+def _accent(cover: bytes | None) -> tuple[int, int, int]:
+    """The most colourful tone of the cover, brightened so it reads on the dark screen."""
+    img = _cover(cover, 24)
+    if img is None:
+        return ACCENT
+    data = img.tobytes()
+    hsv = [colorsys.rgb_to_hsv(*(c / 255 for c in data[i:i + 3])) for i in range(0, len(data), 3)]
+    h, s, v = max(hsv, key=lambda c: c[1] * c[2])
+    if s * v < 0.2:
+        return ACCENT
+    return tuple(round(c * 255) for c in colorsys.hsv_to_rgb(h, min(max(s, 0.4), 0.75), 1.0))
+
+
+@lru_cache(maxsize=8)
+def _wave(seed: str, count: int) -> list[int]:
+    """Bar heights shaped like a waveform; decorative, but the same for the same song."""
+    rnd = random.Random(seed)
+    raw = [rnd.random() for _ in range(count + 2)]
+    avg = ((raw[i] + 2 * raw[i + 1] + raw[i + 2]) / 4 for i in range(count))
+    return [3 + round(15 * clamp((v - 0.5) * 2 + 0.5, 0.0, 1.0)) for v in avg]  # stretched for contrast
+
+
+def _span(np: NowPlaying, pos: int) -> tuple[str, str, int, int]:
+    """(elapsed text, total text, left and right end of the bars)."""
+    left = clock(min(pos, np.duration_ms) if np.duration_ms else pos)
+    right = clock(np.duration_ms) if np.duration_ms else ""
+    x0 = PAD + math.ceil(max(text_width(left, 11, True), text_width("0:00", 11, True))) + 7
+    x1 = W - PAD - math.ceil(max(text_width(right, 11, True), text_width("0:00", 11, True))) - 7
+    return left, right, x0, x1
+
+
 def progress_visual(np: NowPlaying, pos: int) -> tuple[str, int]:
     """Observable progress bar state (left clock string, filled pixel x) for dirty-rect checks."""
-    left = clock(min(pos, np.duration_ms) if np.duration_ms else pos)
+    left, _, x0, x1 = _span(np, pos)
     if np.duration_ms <= 0:
         return left, -1
-    size = 12
-    right = clock(np.duration_ms)
-    x0 = PAD + max(text_width(left, size), text_width("0:00", size)) + 8
-    x1 = W - PAD - max(text_width(right, size), text_width("0:00", size)) - 8
-    x = round(x0 + (x1 - x0) * min(max(pos, 0) / np.duration_ms, 1.0))
-    return left, x
+    return left, round(x0 + (x1 - x0) * min(max(pos, 0) / np.duration_ms, 1.0))
 
 
 def _progress(d: ImageDraw.ImageDraw, np: NowPlaying, pos: int):
-    """'1:23 ━━━━━━──── 4:22' along the bottom edge."""
-    size, y = 12, H - 22
-    left, right = clock(min(pos, np.duration_ms) if np.duration_ms else pos), clock(np.duration_ms) if np.duration_ms else ""
-    draw_text(d, PAD, y, left, size, fill=GREY)
-    draw_text(d, W - PAD - text_width(right, size), y, right, size, fill=GREY)
-    x0 = PAD + max(text_width(left, size), text_width("0:00", size)) + 8
-    x1 = W - PAD - max(text_width(right, size), text_width("0:00", size)) - 8
-    by = y + 7
-    d.rounded_rectangle([x0, by, x1, by + 4], 2, fill=(60, 64, 80))
-    if np.duration_ms > 0:
-        x = x0 + (x1 - x0) * min(max(pos, 0) / np.duration_ms, 1)
-        d.rounded_rectangle([x0, by, max(x, x0 + 4), by + 4], 2, fill=WHITE)
+    """'1:23 ||||ı|||····· 4:22' along the bottom edge, played bars in the cover's colour."""
+    left, right, x0, x1 = _span(np, pos)
+    accent = _accent(np.cover)
+    draw_text(d, PAD, BARS_Y - 8, left, 11, True, WHITE)
+    draw_text(d, W - PAD - text_width(right, 11, True), BARS_Y - 8, right, 11, True, GREY)
+    count = (x1 - x0 + 2) // 4
+    start = x0 + (x1 - x0 + 2 - count * 4) // 2
+    played = count * min(max(pos, 0) / np.duration_ms, 1.0) if np.duration_ms > 0 else 0.0
+    head = min(int(played), count - 1)
+    for i, h in enumerate(_wave(f"{np.title}|{np.artist}", count)):
+        if np.duration_ms > 0 and i == head:  # playhead: taller and white
+            h, colour = max(h + 4, 14), WHITE
+        elif i < played:  # a gradient from the accent towards a lighter tint
+            colour = mix_color(accent, WHITE, 0.45 * i / count)
+        else:
+            colour = (72, 76, 92)
+        x = start + i * 4
+        d.rounded_rectangle([x, BARS_Y - h // 2, x + 1, BARS_Y - h // 2 + h - 1], 1, fill=colour)
 
 
 def _jpeg(img: Image.Image) -> bytes:

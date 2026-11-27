@@ -67,7 +67,6 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setHostname("musicframe");
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  WiFi.setSleep(false);  // modem sleep stalls the frame stream for 100-300 ms at a time
   for (int i = 0; i < 100 && WiFi.status() != WL_CONNECTED; i++) delay(100);
   if (WiFi.status() == WL_CONNECTED) {
     MDNS.begin("musicframe");

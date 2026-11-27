@@ -76,7 +76,9 @@ Thêm GIF ngay trong mục **Thư viện GIF**: bấm **Thêm GIF** để chọn
 ### Bước 5: Hiện nhạc đang phát
 
 1. Mở nhạc trên máy tính: Spotify, YouTube trên trình duyệt, Sonora, hay bất kỳ app nào hiện trong ô điều khiển nhạc của Windows (ô hiện ra khi bấm nút tăng giảm âm lượng).
-2. **Bấm đúp `3-run-app.cmd`**. Một cửa sổ đen nhỏ mở ra: **cứ để nó chạy**, đóng cửa sổ là tắt.
+2. Chạy app trên máy tính, chọn **một** trong hai:
+   - **`MusicFrame.exe`** (nhẹ, không cần Python): bấm đúp là chạy. App không có cửa sổ, chỉ có icon nốt nhạc ở khay hệ thống; bấm vào icon để mở trang web, xem nhật ký hoặc thoát. Windows có thể hỏi "Windows protected your PC" vì file chưa ký: bấm **More info** → **Run anyway**.
+   - **`3-run-app.cmd`** (bản Python): một cửa sổ đen nhỏ mở ra, **cứ để nó chạy**, đóng cửa sổ là tắt.
 3. Trên trang web, chọn **Nhạc** ở góc trên. Màn chuyển sang ảnh bìa + lời bài hát; dừng nhạc khoảng 5 giây thì màn tự quay về GIF.
 
 ---
@@ -105,7 +107,7 @@ Thêm GIF ngay trong mục **Thư viện GIF**: bấm **Thêm GIF** để chọn
 | Màn sáng nhưng trắng hoặc đen trơn | Kiểm tra lại dây SCL, SDA, CS, DC, RST theo bảng ở Bước 1. |
 | Màn hiện "connecting WiFi..." mãi | Sai tên/mật khẩu WiFi trong `.env`, hoặc WiFi là 5 GHz. Sửa `.env` rồi chạy lại `2-flash-usb.cmd`. |
 | Không mở được http://musicframe.local | Dùng địa chỉ IP màn hiện lúc khởi động; kiểm tra điện thoại cùng WiFi với màn. |
-| Chọn Nhạc mà màn vẫn chiếu GIF | App trên máy tính chưa chạy: bấm đúp `3-run-app.cmd` và phát nhạc. Trang web cũng hiện cảnh báo vàng khi gặp trường hợp này. |
+| Chọn Nhạc mà màn vẫn chiếu GIF | App trên máy tính chưa chạy: mở `MusicFrame.exe` (hoặc `3-run-app.cmd`) và phát nhạc. Trang web cũng hiện cảnh báo vàng khi gặp trường hợp này. |
 | Có bài nhưng không có lời | Bài đó không có lời khớp với bản bạn nghe (thường gặp với bản MV có intro dài, hoặc nhạc ít người nghe). Thử bản audio chính thức. |
 | Lời lệch nhịp | Kéo **Lệch lời** trên trang web. |
 | Mục Tình trạng báo "Sụt nguồn" | Thay cục sạc hoặc dây USB khác (nên từ 5V 1A). |
@@ -124,6 +126,7 @@ firmware/   ESP32-S3 (PlatformIO, Arduino): màn hình, GIF, web, OTA, log
   test/       test Unity chạy trên giả lập Wokwi
   wiretest/   firmware kiểm tra dây màn
 pc/         app Python: đọc nhạc của Windows, tìm lời, vẽ màn 240×240, gửi sang ESP32
+pc-rs/      cùng app đó viết bằng Rust, ra một file MusicFrame.exe
 scripts/    setup.ps1, firmware.ps1 (các file .cmd ở thư mục gốc gọi tới)
 .env        cấu hình duy nhất (gitignore); mẫu: .env.example
 ```
@@ -148,7 +151,18 @@ cd firmware
 ..\.venv\Scripts\pio test -e wokwi           # test Unity trong giả lập (cần WOKWI_CLI_TOKEN, wokwi-cli trong .tools/)
 ```
 
-**App PC**
+**App PC (Rust)**
+
+```powershell
+.\scripts\build-exe.ps1               # ra dist\MusicFrame.exe
+.\scripts\build-exe.ps1 -Cargo test   # chạy test
+```
+
+Cần Rust (rustup). Lần đầu: `rustup toolchain install stable-x86_64-pc-windows-gnu` rồi `rustup component add llvm-tools --toolchain stable-x86_64-pc-windows-gnu`. Không cần Visual Studio.
+
+Để cạnh exe một file `.env` nếu muốn đặt `SCREEN_HOST`, `CONTACT_LINK`, `CONTACT_EMAIL` (không bắt buộc). Nhật ký nằm ở `musicframe.log` cạnh exe. `MusicFrame.exe --png now.png` vẽ bài đang phát ra file; `--lyrics "ca sĩ" "tên bài" > out.txt` xem từng nguồn lời trả gì.
+
+**App PC (Python)**
 
 ```powershell
 cd pc

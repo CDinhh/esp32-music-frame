@@ -458,3 +458,12 @@ def test_first_line_starts_at_the_top():
     ly = Lyrics([Line(i * 1000, "Hello") for i in range(7)], False, "lrc")
     first = _bands(_compose_sheet(ly, 100, False, None, 1.0))[0]
     assert first[0] < 30  # no empty half screen above the opening line
+
+
+def test_timeline_bars_take_the_cover_colour_up_to_the_playhead():
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (20, 60, 200)).save(buf, "PNG")
+    im = img(render_basic(NP(pos=100000, cover=buf.getvalue()), 100000)).convert("RGB")
+    row = [im.getpixel((x, 225)) for x in range(45, 195)]
+    blue = [x for x, (r, g, b) in enumerate(row) if b > 180 and b - r > 50]
+    assert blue and max(blue) < 85  # coloured only on the played half

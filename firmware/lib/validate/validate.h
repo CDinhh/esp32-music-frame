@@ -43,6 +43,15 @@ inline bool gifDimsOk(const uint8_t* b, size_t n) {
 
 inline bool isJpeg(const uint8_t* b, size_t n) { return n >= 2 && b[0] == 0xFF && b[1] == 0xD8; }
 
+// http(s) link with a host, no spaces or control characters, sane length.
+inline bool validUrl(const std::string& u) {
+  size_t start = u.rfind("https://", 0) == 0 ? 8 : u.rfind("http://", 0) == 0 ? 7 : 0;
+  if (!start || u.size() <= start || u.size() > 512) return false;
+  for (unsigned char c : u)
+    if (c <= ' ' || c == 0x7f) return false;
+  return u[start] != '/';
+}
+
 inline bool isSourceId(const std::string& s) {
   for (auto id : SOURCE_IDS) if (s == id) return true;
   return false;

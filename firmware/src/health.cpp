@@ -58,7 +58,7 @@ void healthToJson(JsonObject out) {
   if (bootReason == ESP_RST_PANIC || bootReason == ESP_RST_TASK_WDT || bootReason == ESP_RST_INT_WDT || bootReason == ESP_RST_WDT)
     warn.add("crashed");
   if (rssi && rssi < -80) warn.add("weak_wifi");
-  if (ESP.getMinFreeHeap() < 30000) warn.add("low_memory");
+  if (ESP.getMinFreeHeap() < 16000) warn.add("low_memory");  // HTTPS downloads dip to ~28 KB, which is fine
   out["ok"] = warn.size() == 0;
   out["showing"] = musicActive() ? "music" : "gif";
 }

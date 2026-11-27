@@ -46,10 +46,10 @@ LYRICS_H = 136
 AREA_TOP = LYRICS_Y
 ANCHOR_Y = LYRICS_H / 2
 EDGE_FADE_PX = 16
-CONTEXT_SCALE = 0.88
+CONTEXT_SCALE = 0.7  # the other lines rest at 14 px, the one being sung is 20 px
 VERSE_GAP = 12
 BREAK_H = 20
-BASE_SIZE = 16
+BASE_SIZE = 20
 HAZE_EXP = 0.45
 HAZE_REACH = LYRICS_H  # keeps a neighbour about half as soft as a far line, as on Sonora's tall sheet
 BLUR_RATIO = 0.13
@@ -391,7 +391,7 @@ def _layout_line(line: Line, pace: float, max_w: float) -> _LinePlan:
     def width(text: str, size: int) -> float:  # measured at the size it is drawn at
         return text_width(text, size * SS, True) / SS
 
-    for size in (BASE_SIZE, 15, 13, 12):
+    for size in (BASE_SIZE, 18, 16, 14, 12):
         wrapped = _wrap_with_ranges(line.text, size, max_w, True)
         lh = size + 6
         if len(wrapped) * lh <= LYRICS_H - 8 or size == 12:
@@ -660,7 +660,7 @@ def _compose_sheet(
             base = start + (PAST - start) * dep_t
         else:
             base = PAST if line_ended else AHEAD
-        blur = _quantized_blur(lp.size, softness)
+        blur = _quantized_blur(lp.size * CONTEXT_SCALE, softness)
 
         if show_karaoke:
             fade = 0.0

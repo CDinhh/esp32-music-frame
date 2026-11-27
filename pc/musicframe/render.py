@@ -3,7 +3,6 @@ import colorsys
 import io
 import math
 import os
-import random
 import time
 import zlib
 from dataclasses import dataclass
@@ -21,7 +20,6 @@ from .lyrics.motion import (
     clamp,
     ease_out_cubic,
     ease_out_expo,
-    mix_color,
     monotone,
     own_sung_end,
     pace_limit,
@@ -252,6 +250,9 @@ def clock(ms: int) -> str:
 
 ACCENT = (255, 122, 89)  # used when the cover has no colour of its own
 BARS_Y = 225             # vertical middle of the timeline
+TIMELINE_Y = 212         # everything below belongs to the timeline and is streamed on its own
+RAIL = (112, 118, 140)   # the time still to play
+WAVE_LEN, WAVE_AMP, WAVE_SPEED = 16.0, 2.8, 18.0  # px, px, px per second
 
 
 @lru_cache(maxsize=8)
@@ -268,21 +269,13 @@ def _accent(cover: bytes | None) -> tuple[int, int, int]:
     return tuple(round(c * 255) for c in colorsys.hsv_to_rgb(h, min(max(s, 0.4), 0.75), 1.0))
 
 
-@lru_cache(maxsize=8)
-def _wave(seed: str, count: int) -> list[int]:
-    """Bar heights shaped like a waveform; decorative, but the same for the same song."""
-    rnd = random.Random(seed)
-    raw = [rnd.random() for _ in range(count + 2)]
-    avg = ((raw[i] + 2 * raw[i + 1] + raw[i + 2]) / 4 for i in range(count))
-    return [3 + round(15 * clamp((v - 0.5) * 2 + 0.5, 0.0, 1.0)) for v in avg]  # stretched for contrast
-
-
 def _span(np: NowPlaying, pos: int) -> tuple[str, str, int, int]:
-    """(elapsed text, total text, left and right end of the bars)."""
+    """(elapsed text, remaining text, left and right end of the track)."""
     left = clock(min(pos, np.duration_ms) if np.duration_ms else pos)
-    right = clock(np.duration_ms) if np.duration_ms else ""
-    x0 = PAD + math.ceil(max(text_width(left, 11, True), text_width("0:00", 11, True))) + 7
-    x1 = W - PAD - math.ceil(max(text_width(right, 11, True), text_width("0:00", 11, True))) - 7
+    right = "-" + clock(np.duration_ms - min(pos, np.duration_ms)) if np.duration_ms else ""
+    widest = clock(np.duration_ms) if np.duration_ms else "0:00"  # fixed ends: the track never jumps
+    x0 = PAD + math.ceil(text_width(widest, 11, True)) + 9
+    x1 = W - PAD - math.ceil(text_width("-" + widest, 11, True)) - 9
     return left, right, x0, x1
 
 
@@ -294,25 +287,41 @@ def progress_visual(np: NowPlaying, pos: int) -> tuple[str, int]:
     return left, round(x0 + (x1 - x0) * min(max(pos, 0) / np.duration_ms, 1.0))
 
 
-def _progress(d: ImageDraw.ImageDraw, np: NowPlaying, pos: int):
-    """'1:23 ||||ı|||····· 4:22' along the bottom edge, played bars in the cover's colour."""
+def _progress(img: Image.Image, np: NowPlaying, pos: int, t: float = 0.0):
+    """'1:23 ~~~~~o──────── -2:59': the played part is a flowing wave, the rest a plain rail."""
     left, right, x0, x1 = _span(np, pos)
-    accent = _accent(np.cover)
+    d = ImageDraw.Draw(img)
     draw_text(d, PAD, BARS_Y - 8, left, 11, True, WHITE)
-    draw_text(d, W - PAD - text_width(right, 11, True), BARS_Y - 8, right, 11, True, GREY)
-    count = (x1 - x0 + 2) // 4
-    start = x0 + (x1 - x0 + 2 - count * 4) // 2
-    played = count * min(max(pos, 0) / np.duration_ms, 1.0) if np.duration_ms > 0 else 0.0
-    head = min(int(played), count - 1)
-    for i, h in enumerate(_wave(f"{np.title}|{np.artist}", count)):
-        if np.duration_ms > 0 and i == head:  # playhead: taller and white
-            h, colour = max(h + 4, 14), WHITE
-        elif i < played:  # a gradient from the accent towards a lighter tint
-            colour = mix_color(accent, WHITE, 0.45 * i / count)
-        else:
-            colour = (72, 76, 92)
-        x = start + i * 4
-        d.rounded_rectangle([x, BARS_Y - h // 2, x + 1, BARS_Y - h // 2 + h - 1], 1, fill=colour)
+    draw_text(d, W - PAD - text_width(right, 11, True), BARS_Y - 8, right, 11, True, WHITE)
+
+    k, h = 3, 16  # drawn three times larger, then scaled down for smooth edges
+    pad = 6
+    w = x1 - x0 + 2 * pad
+    layer = Image.new("RGBA", (w * k, h * k), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    mid = h * k / 2
+    done = (x1 - x0) * (min(max(pos, 0) / np.duration_ms, 1.0) if np.duration_ms > 0 else 0.0)
+    head = (pad + done) * k
+    end = (pad + x1 - x0) * k
+    ld.line([(head, mid), (end, mid)], fill=(*RAIL, 255), width=4 * k)
+    ld.ellipse([end - 2 * k, mid - 2 * k, end + 2 * k, mid + 2 * k], fill=(*RAIL, 255))
+
+    accent = _accent(np.cover)
+    points = []
+    for i in range(int(done * 2) + 1):  # a point every half pixel
+        x = i / 2
+        ease = min(1.0, x / 8, (done - x) / 8)  # flat where it leaves the start and meets the knob
+        y = math.sin((x - t * WAVE_SPEED) * math.tau / WAVE_LEN) * WAVE_AMP * max(ease, 0.0)
+        points.append(((pad + x) * k, mid + y * k))
+    if len(points) > 1:
+        ld.line(points, fill=(*accent, 255), width=3 * k, joint="curve")
+        x, y = points[0]
+        ld.ellipse([x - 1.5 * k, y - 1.5 * k, x + 1.5 * k, y + 1.5 * k], fill=(*accent, 255))
+
+    ld.ellipse([head - 5.5 * k, mid - 5.5 * k, head + 5.5 * k, mid + 5.5 * k], fill=(*accent, 110))  # halo
+    ld.ellipse([head - 4 * k, mid - 4 * k, head + 4 * k, mid + 4 * k], fill=(*WHITE, 255))
+    layer = layer.resize((w, h), Image.Resampling.LANCZOS)
+    img.paste(layer, (x0 - pad, BARS_Y - h // 2), layer)
 
 
 def _jpeg(img: Image.Image) -> bytes:
@@ -321,7 +330,7 @@ def _jpeg(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
-def render_basic_image(np: NowPlaying, position_ms: int) -> Image.Image:
+def render_basic_image(np: NowPlaying, position_ms: int, now_s: float = 0.0) -> Image.Image:
     """No lyrics: big cover, title, artist, progress (RGB Image)."""
     img = _background(np.cover).copy()
     d = ImageDraw.Draw(img)
@@ -337,7 +346,7 @@ def render_basic_image(np: NowPlaying, position_ms: int) -> Image.Image:
     draw_text(d, (W - text_width(t, 18, True)) / 2, 160, t, 18, True)
     a = fit(np.artist, 14, W - 2 * PAD)
     draw_text(d, (W - text_width(a, 14)) / 2, 188, a, 14, fill=GREY)
-    _progress(d, np, position_ms)
+    _progress(img, np, position_ms, now_s)
     return img
 
 
@@ -724,7 +733,7 @@ def _compose_region(
     region: str,
 ) -> tuple[Image.Image, int, int]:
     if not lyrics or not lyrics.lines:
-        return render_basic_image(np, position_ms), 0, 0
+        return render_basic_image(np, position_ms, now_s), 0, 0
     img = _base_screen(np.cover, np.title, np.artist, lyrics.source).copy()
     sheet = _compose_sheet(lyrics, position_ms, karaoke, animator, now_s)
     img.paste((255, 255, 255), (0, LYRICS_Y), sheet)
@@ -732,7 +741,7 @@ def _compose_region(
     if region == "lyrics":
         return img.crop((0, LYRICS_Y, W, LYRICS_Y + LYRICS_H)), 0, LYRICS_Y
 
-    _progress(ImageDraw.Draw(img), np, position_ms)
+    _progress(img, np, position_ms, now_s)
     if region == "lower":
         return img.crop((0, LYRICS_Y, W, H)), 0, LYRICS_Y
     return img, 0, 0
@@ -762,18 +771,29 @@ def render_stream_frame(
     animator: SheetAnimator | None = None,
     now_s: float | None = None,
     previous: Image.Image | None = None,
-) -> tuple[bytes, int, int, int, int, Image.Image]:
-    """Zlib RGB888 of the part that differs from `previous` (what the screen shows now):
-    (payload, x, y, w, h, whole new frame). Less data per frame is what makes motion smooth."""
+) -> tuple[list[tuple[bytes, int, int, int, int]], Image.Image]:
+    """Zlib RGB888 of the parts that differ from `previous` (what the screen shows now), as
+    [(payload, x, y, w, h)], and the whole new frame. Less data per frame is what makes motion
+    smooth; the ever-moving timeline goes on its own so it does not drag the lyrics along."""
     if now_s is None:
         now_s = time.monotonic()
     frame, _, _ = _compose_region(np, position_ms, lyrics, karaoke, animator, now_s, "full")
-    box = (0, 0, W, H)
-    if previous is not None:
+    if previous is None:
+        boxes = [(0, 0, W, H)]
+    else:
+        diff = ImageChops.difference(frame, previous)
+        boxes = []
+        for top, bottom in ((0, TIMELINE_Y), (TIMELINE_Y, H)):
+            box = diff.crop((0, top, W, bottom)).getbbox()
+            if box:
+                boxes.append((box[0], box[1] + top, box[2], box[3] + top))
         # nothing changed: one pixel in the corner keeps the screen in music mode
-        box = ImageChops.difference(frame, previous).getbbox() or (W - 1, H - 1, W, H)
-    crop = frame.crop(box)
-    return zlib.compress(crop.tobytes(), 1), box[0], box[1], crop.width, crop.height, frame
+        boxes = boxes or [(W - 1, H - 1, W, H)]
+    parts = []
+    for box in boxes:
+        crop = frame.crop(box)
+        parts.append((zlib.compress(crop.tobytes(), 1), box[0], box[1], crop.width, crop.height))
+    return parts, frame
 
 
 def render_lyrics(

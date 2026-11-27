@@ -240,7 +240,7 @@ def test_stream_frame_and_tcp_protocol():
     from musicframe.render import render_stream_frame
 
     ly = Lyrics([Line(0, "Hello"), Line(2000, "World")], False, "lrc")
-    payload, x, y, w, h, shown = render_stream_frame(NP(), 500, ly)
+    [(payload, x, y, w, h)], shown = render_stream_frame(NP(), 500, ly)
     assert (x, y, w, h) == (0, 0, 240, 240)
     raw = zlib.decompress(payload)
     assert len(raw) == w * h * 3
@@ -444,13 +444,16 @@ def test_rows_trail_behind_the_scroll():
 
 
 def test_stream_sends_only_what_changed():
-    from musicframe.render import render_stream_frame
+    from musicframe.render import TIMELINE_Y, render_stream_frame
     ly = Lyrics([Line(0, "Hello")], False, "lrc")
-    *_, shown = render_stream_frame(NP(), 5000, ly, now_s=1.0)
-    _, x, y, w, h, shown = render_stream_frame(NP(), 5000, ly, now_s=2.0, previous=shown)
-    assert (x, y, w, h) == (239, 239, 1, 1)  # nothing changed: 1x1 keep-alive
-    _, x, y, w, h, _ = render_stream_frame(NP(), 30000, ly, now_s=3.0, previous=shown)
-    assert y >= 200 and h < 40  # only the timeline moved
+    _, shown = render_stream_frame(NP(), 5000, ly, now_s=1.0)
+    parts, shown = render_stream_frame(NP(), 5000, ly, now_s=1.0, previous=shown)
+    assert [p[1:] for p in parts] == [(239, 239, 1, 1)]  # nothing changed: 1x1 keep-alive
+    parts, _ = render_stream_frame(NP(), 5000, ly, now_s=1.2, previous=shown)
+    parts30, _ = render_stream_frame(NP(), 30000, ly, now_s=1.0, previous=shown)
+    for changed in (parts, parts30):  # the wave flowing or the song advancing touches the timeline only
+        [(_, x, y, w, h)] = changed
+        assert y >= TIMELINE_Y
 
 
 def test_first_line_starts_at_the_top():
@@ -460,10 +463,12 @@ def test_first_line_starts_at_the_top():
     assert first[0] < 30  # no empty half screen above the opening line
 
 
-def test_timeline_bars_take_the_cover_colour_up_to_the_playhead():
+def test_timeline_shows_wave_up_to_the_playhead_and_a_rail_after_it():
+    from musicframe.render import RAIL
     buf = io.BytesIO()
     Image.new("RGB", (64, 64), (20, 60, 200)).save(buf, "PNG")
     im = img(render_basic(NP(pos=100000, cover=buf.getvalue()), 100000)).convert("RGB")
-    row = [im.getpixel((x, 225)) for x in range(45, 195)]
-    blue = [x for x, (r, g, b) in enumerate(row) if b > 180 and b - r > 50]
-    assert blue and max(blue) < 85  # coloured only on the played half
+    blue = [x for x in range(45, 195) for y in range(219, 232)
+            if (lambda p: p[2] > 180 and p[2] - p[0] > 50)(im.getpixel((x, y)))]
+    assert blue and max(blue) < 130  # the wave stops at the half-way knob
+    assert all(abs(a - b) < 20 for a, b in zip(im.getpixel((160, 225)), RAIL))  # remaining time is clearly drawn

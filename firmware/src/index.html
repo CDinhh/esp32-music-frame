@@ -51,7 +51,18 @@ h2{font-size:14px;font-weight:650}
 
 /* one row that scrolls sideways: the card keeps its height however many GIFs there are */
 .lib{display:grid;grid-auto-flow:column;grid-auto-columns:128px;align-content:start;gap:10px;overflow-x:auto;overscroll-behavior-x:contain;padding:2px 2px 10px;margin:-2px -2px 0}
-.lib::-webkit-scrollbar-thumb{border-color:var(--panel)}
+.lib{scrollbar-width:auto;scrollbar-color:auto}
+.lib::-webkit-scrollbar{height:8px}
+.lib::-webkit-scrollbar-track{background:var(--bg);border-radius:4px}
+.lib::-webkit-scrollbar-thumb{background:var(--ink-3);border:0;border-radius:4px}
+.lib::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+@supports not selector(::-webkit-scrollbar){.lib{scrollbar-width:thin;scrollbar-color:var(--ink-3) var(--bg)}}
+.arrows{display:flex;gap:4px;margin-left:auto}
+.arrows[hidden]{display:none}
+.arrows button{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line-2);border-radius:7px;background:var(--raised);cursor:pointer}
+.arrows button:hover{border-color:var(--accent)}
+.arrows button:disabled{opacity:.35;cursor:default;border-color:var(--line-2)}
+.arrows .ico{width:16px;height:16px}
 .tile{position:relative;aspect-ratio:1;border-radius:var(--r-sm);overflow:hidden;background:var(--raised);border:1px solid var(--line);cursor:pointer;transition:border-color .18s,transform .18s var(--ease)}
 .tile:hover{border-color:var(--line-2);transform:translateY(-1px)}
 .tile.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
@@ -172,7 +183,7 @@ dialog .acts{display:flex;justify-content:flex-end;gap:8px}
 
 <main>
   <section class="panel" aria-labelledby="h-lib">
-    <header><h2 id="h-lib">Thư viện GIF</h2><span class="hint num" id="free"></span></header>
+    <header><h2 id="h-lib">Thư viện GIF</h2><span class="arrows" id="arrows" hidden><button type="button" aria-label="Xem GIF trước"><svg class="ico" style="transform:rotate(90deg)"><use href="#i-down"/></svg></button><button type="button" aria-label="Xem GIF tiếp theo"><svg class="ico" style="transform:rotate(-90deg)"><use href="#i-down"/></svg></button></span><span class="hint num" id="free"></span></header>
     <form class="paste" id="paste">
       <input class="input" id="link" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Dán link GIF, link Giphy hoặc mã embed" aria-label="Link GIF">
       <button class="btn primary" type="submit" id="pasteBtn">Thêm</button>
@@ -265,6 +276,7 @@ async function loadGifs(){
   if(!j.gifs.length){const p=document.createElement("p");p.className="empty";p.textContent="Chưa có GIF nào. Thêm file .gif (tối đa 2 MB, cạnh dài ≤ 480 px); ảnh lớn hơn 240 px sẽ được thu nhỏ cho vừa màn.";box.appendChild(p)}
   const on=box.querySelector(".tile.active");  // scroll the row only, never the page
   if(on)box.scrollLeft=Math.max(0,on.offsetLeft-box.offsetLeft+on.offsetWidth-box.clientWidth);
+  syncArrows();
 }
 
 function upload(file){return new Promise((res,rej)=>{
@@ -313,6 +325,10 @@ $("#paste").onsubmit=async e=>{
   tick();
 };
 
+function syncArrows(){const b=$("#gifs"),max=b.scrollWidth-b.clientWidth,[prev,next]=$("#arrows").children;
+  $("#arrows").hidden=max<=1;prev.disabled=b.scrollLeft<=1;next.disabled=b.scrollLeft>=max-1}
+[...$("#arrows").children].forEach((btn,i)=>btn.onclick=()=>$("#gifs").scrollBy({left:(i?1:-1)*($("#gifs").clientWidth-60),behavior:"smooth"}));
+$("#gifs").addEventListener("scroll",syncArrows,{passive:true});addEventListener("resize",syncArrows);
 $("#gifs").addEventListener("wheel",e=>{const b=e.currentTarget;if(b.scrollWidth>b.clientWidth&&Math.abs(e.deltaY)>Math.abs(e.deltaX)){b.scrollLeft+=e.deltaY;e.preventDefault()}},{passive:false});
 $("#file").onchange=async e=>{for(const f of e.target.files){try{await upload(f);toast("Đã thêm "+f.name)}catch(err){toast(err.message,1)}}e.target.value="";loadGifs()};
 

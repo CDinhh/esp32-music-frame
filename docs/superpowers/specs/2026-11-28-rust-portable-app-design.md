@@ -50,14 +50,14 @@ Thư mục mới `pc-rs/` (một crate). `pc/` giữ nguyên cho tới khi bản
 
 Luồng chạy: luồng chính giữ icon khay; một luồng vẽ và gửi; lời được tải ở luồng riêng. Không dùng async runtime.
 
-Thư viện: `windows` (media session, khay), `ureq` với TLS của Windows, `serde_json`, `flate2`, `image` (chỉ JPEG/PNG), `fontdue`, `roxmltree`, `base64`, `regex-lite`. Thêm thư viện khác phải có lý do về dung lượng.
+Thư viện: `windows` (media session, khay), `ureq` với TLS của Windows, `serde_json`, `flate2`, `image` (chỉ JPEG/PNG/BMP), `ab_glyph` + `memmap2`, `roxmltree`, `base64`, `regex-lite`. Thêm thư viện khác phải có lý do về dung lượng.
 
-Bản build: `lto`, `strip`, `panic = "abort"`; ưu tiên tốc độ vẽ hơn vài trăm KB. Script `scripts/build-exe.ps1` tạo `dist/MusicFrame.exe` (`dist/` không đưa vào git). Máy dev đã có Rust 1.99 MSVC.
+Bản build: `lto`, `strip`, `panic = "abort"`; ưu tiên tốc độ vẽ hơn vài trăm KB. Script `scripts/build-exe.ps1` tạo `dist/MusicFrame.exe` (`dist/` không đưa vào git). Toolchain GNU (máy dev không có MSVC Build Tools), link bằng `rust-lld` vì GNU `ld` làm hỏng bảng import của crate `windows` (exe crash ngay khi mở).
 
 ## Rủi ro
 
 - **YouTube Music**: bản Python dùng thư viện `ytmusicapi`. Rust phải tự gọi API nội bộ `youtubei/v1` (`search` lọc bài hát → `next` lấy mã lời → `browse` bằng client Android để có mốc thời gian). API không công bố, có thể đổi. Nếu không làm được thì báo, không lặng lẽ bỏ.
-- **Chữ**: `fontdue` thay cho FreeType của Pillow, nét có thể khác nhẹ. Kiểm bằng ảnh đặt cạnh nhau: tiếng Việt, Nhật, Hàn, Trung, ký hiệu ♪, lời từng chữ.
+- **Chữ**: `ab_glyph` thay cho FreeType của Pillow, nét có thể khác nhẹ (`fontdue` bị loại vì đọc hết font CJK vào RAM ngay từ đầu). Kiểm bằng ảnh đặt cạnh nhau: tiếng Việt, Nhật, Hàn, Trung, ký hiệu ♪, lời từng chữ.
 - **Máy khác**: exe không ký số nên Windows SmartScreen sẽ hỏi "More info → Run anyway"; phần mềm diệt virus có thể cảnh báo nhầm.
 
 ## Kiểm tra

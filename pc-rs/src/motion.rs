@@ -1,5 +1,5 @@
 //! Sonora-inspired lyric timing, spring physics and monotone sweep math.
-use crate::model::{Line, Lyrics, Word};
+use crate::model::{Line, Word};
 use std::collections::HashMap;
 
 // Physical springs (stiffness, damping) from Sonora (crates/ui/src/motion.rs)

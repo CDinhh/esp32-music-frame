@@ -6,7 +6,7 @@
 
 **Architecture:** One crate in `pc-rs/`, a straight port of `pc/musicframe` module by module. Pure logic first (unit tested), then drawing (compared by PNG), then Windows and network.
 
-**Tech Stack:** Rust 1.99 MSVC; `windows`, `ureq` + `native-tls`, `serde_json`, `flate2`, `image` (jpeg/png/bmp), `ab_glyph` + `memmap2`, `roxmltree`, `base64`, `regex-lite`.
+**Tech Stack:** Rust 1.99 GNU + `rust-lld`; `windows`, `ureq` + `native-tls`, `serde_json`, `flate2`, `image` (jpeg/png/bmp), `ab_glyph` + `memmap2`, `roxmltree`, `base64`, `regex-lite`.
 
 **Spec:** `docs/superpowers/specs/2026-11-28-rust-portable-app-design.md`
 

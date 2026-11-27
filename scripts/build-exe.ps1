@@ -13,7 +13,9 @@ if (-not (Test-Path $dlltool)) {
     Copy-Item "$rust\llvm-ar.exe" $dlltool
 }
 $env:PATH = "$rust\self-contained;$env:PATH"
-$env:RUSTFLAGS = "-Cdlltool=$($dlltool -replace '\\', '/') -Ctarget-feature=+crt-static"
+$env:PATH = "$rust;$env:PATH"
+# link with rust-lld: GNU ld breaks the import table of the windows crate's libraries (crash at start)
+$env:RUSTFLAGS = "-Cdlltool=$($dlltool -replace '\\', '/') -Clinker=rust-lld -Clinker-flavor=ld.lld -Clink-self-contained=yes"
 
 Push-Location "$root\pc-rs"
 try {

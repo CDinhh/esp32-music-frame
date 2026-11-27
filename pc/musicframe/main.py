@@ -65,16 +65,15 @@ def stream_packet_for(
     lyrics,
     animator: SheetAnimator | None = None,
     mono_now: float | None = None,
-    region: str = "full",
-) -> tuple[bytes, int, int, int, int, float, int]:
-    """Lossless zlib RGB888 packet, (x, y, w, h), wait until next frame, and rendered position_ms."""
+    previous=None,
+):
+    """Changed part of the screen: (payload, (x, y, w, h), wait, rendered position_ms, whole frame)."""
     if mono_now is None:
         mono_now = time.monotonic()
     pos = interpolate(np, np.updated_at, now) + int(reply.get("offset_ms", 0))
     karaoke = bool(reply.get("word_sync")) and bool(lyrics and lyrics.word_synced)
-    payload, x, y, w, h = render_stream_frame(np, pos, lyrics, karaoke, animator, mono_now, region=region)
-    wait = _next_wait(lyrics, pos, karaoke, animator, mono_now)
-    return payload, x, y, w, h, wait, pos
+    payload, x, y, w, h, frame = render_stream_frame(np, pos, lyrics, karaoke, animator, mono_now, previous)
+    return payload, (x, y, w, h), _next_wait(lyrics, pos, karaoke, animator, mono_now), pos, frame
 
 
 def frame_for(np, now, reply, lyrics, animator: SheetAnimator | None = None, mono_now: float | None = None) -> tuple[bytes, float]:
@@ -94,6 +93,7 @@ async def run(host: str):
     animator = SheetAnimator()
     last_static = None
     last_prog = None
+    shown = None  # the frame the screen is showing, so only changes are streamed
     np, read_at = None, 0.0
     lag = 0.02  # seconds from send to pixels on screen, smoothed
     log.info("sending to http://%s/frame", host)
@@ -109,6 +109,7 @@ async def run(host: str):
                 np = None
             read_at = now
         if not np or not np.playing:
+            shown = None
             last_static = None
             last_prog = None
             await asyncio.sleep(0.5)  # nothing sent: the screen returns to its GIF after 5 s
@@ -142,8 +143,10 @@ async def run(host: str):
         sent_at = time.time()
         stream_port = reply.get("stream")
         if stream_port:
-            payload, x, y, w, h, wait, rendered_pos = stream_packet_for(np, now + lag, reply, ly, animator, mono_now, region=region)
-            got = client.send_stream(payload, x, y, w, h, int(stream_port))
+            payload, rect, wait, rendered_pos, frame = stream_packet_for(np, now + lag, reply, ly, animator, mono_now, shown)
+            got = client.send_stream(payload, *rect, int(stream_port))
+            # only trust it as "on screen" if the screen says it is showing music
+            shown = frame if got and got.get("music_mode", True) and got.get("in_music", True) else None
         else:
             jpeg, x, y, wait, rendered_pos = packet_for(np, now + lag, reply, ly, animator, mono_now, region=region)
             got = client.send(jpeg, x, y)

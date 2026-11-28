@@ -20,3 +20,6 @@
 
 ## Không làm
 Tiếng (vẫn phát ở máy tính), bấm F hộ, cắt vùng video, vượt chống sao chép (Netflix có thể ra đen), sửa firmware, bản Python.
+
+## Đo được (2026-11-28, màn thật, cửa sổ thử ngoài màn hình)
+Hình phẳng ~28 hình/s; ảnh chụp lướt toàn khung ~19 (zlib mức mặc định, mức nhanh chỉ ~16); nhiễu màu (xấu nhất) ~12. Nghẽn ở đường WiFi + vẽ trên màn, không ở khâu chụp, nên không làm Windows Graphics Capture.

@@ -62,6 +62,13 @@ pub fn compress(raw: &[u8]) -> Vec<u8> {
     z.finish().unwrap_or_default()
 }
 
+/// Video frames are limited by the WiFi link, so spending a little more on packing pays off.
+fn compress_hard(raw: &[u8]) -> Vec<u8> {
+    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    let _ = z.write_all(raw); // writing into a Vec cannot fail
+    z.finish().unwrap_or_default()
+}
+
 pub fn clean(np: &mut NowPlaying) {
     (np.title, np.artist) = clean_title(&np.title, &np.artist); // the cleaned name is shown on screen too
 }
@@ -147,7 +154,7 @@ fn mirror_window(client: &mut Client, reply: &mut Settings, mirrored: &Mirrored,
         }
         let r = mirror::union(&dirty(shown.as_ref(), &last));
         let pixels = rgb565(&last.crop(r.x, r.y, r.w, r.h));
-        let Some(got) = client.send(&compress(&pixels), r, reply.stream) else {
+        let Some(got) = client.send(&compress_hard(&pixels), r, reply.stream) else {
             shown = None;
             set(status, "Không thấy màn");
             sleep(2.0);

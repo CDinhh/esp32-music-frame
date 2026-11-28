@@ -17,6 +17,7 @@ const OPEN_WEB: usize = 1;
 const OPEN_LOG: usize = 2;
 const QUIT: usize = 3;
 const MIRROR_OFF: usize = 4;
+const MIRROR_FILL: usize = 5;
 const MIRROR_FIRST: usize = 100; // one id per listed window
 const SIZE: i32 = 32;
 
@@ -116,6 +117,7 @@ fn menu(hwnd: HWND, tray: &Tray) {
                 let _ = AppendMenuW(list, check(*window == current), MIRROR_FIRST + i, &HSTRING::from(label(title)));
             }
             let _ = AppendMenuW(list, MF_SEPARATOR, 0, None);
+            let _ = AppendMenuW(list, check(mirror::FILL.load(Relaxed)), MIRROR_FILL, w!("Phóng đầy màn (cắt hai bên)"));
             let _ = AppendMenuW(list, check(current == 0), MIRROR_OFF, w!("Tắt"));
             // the submenu is destroyed together with its parent
             let _ = AppendMenuW(menu, MF_POPUP, list.0 as usize, w!("Chiếu cửa sổ"));
@@ -142,6 +144,9 @@ fn menu(hwnd: HWND, tray: &Tray) {
             PostQuitMessage(0);
         },
         MIRROR_OFF => tray.mirrored.store(0, Relaxed),
+        MIRROR_FILL => {
+            mirror::FILL.fetch_xor(true, Relaxed);
+        }
         id => {
             if let Some((window, _)) = id.checked_sub(MIRROR_FIRST).and_then(|i| windows.get(i)) {
                 tray.mirrored.store(*window, Relaxed);

@@ -103,12 +103,13 @@ Thêm GIF ngay trong mục **Thư viện GIF**: bấm **Thêm GIF** để chọn
 Chỉ có ở `MusicFrame.exe` (bản mới hơn v0.1.0). Màn phải đang ở chế độ **Nhạc**. Chọn **Tắt** để quay về lời bài hát.
 
 - Cửa sổ bị cửa sổ khác che vẫn chiếu. Thu nhỏ thì màn giữ hình cuối. Đóng cửa sổ thì tự về lời bài hát.
-- Chỉ có hình, tiếng vẫn phát ở máy tính. Muốn video đầy màn nhỏ thì bấm **F** trong trình phát video trước.
+- Chỉ có hình, tiếng vẫn phát ở máy tính. Muốn chỉ thấy video thì bấm **F** trong trình phát video trước.
+- Màn vuông, video thì chữ nhật. **Phóng đầy màn (cắt hai bên)** trong cùng menu (bật sẵn) lấy phần vuông ở giữa; bỏ tích thì thấy cả cửa sổ với viền đen trên dưới, và mượt hơn một chút.
 - Chrome, Edge, Helium ngừng vẽ khi bị che. Đóng hẳn trình duyệt, rồi thêm vào cuối ô **Target** của shortcut dùng để mở nó:
   `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion`
 - Game chạy **Fullscreen** độc quyền có thể làm cửa sổ phía sau ngừng vẽ; thử chế độ **Windowed Fullscreen**.
 - Nội dung chống sao chép (ví dụ Netflix) có thể chỉ ra màn đen.
-- Tốc độ phụ thuộc WiFi và độ phức tạp của hình: khoảng 12–28 hình/giây.
+- Tốc độ phụ thuộc WiFi và độ phức tạp của hình: khoảng 12–28 hình/giây. Để gửi nhanh hơn, hình chiếu được giảm nhẹ số màu.
 
 ---
 

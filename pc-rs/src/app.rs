@@ -1,7 +1,9 @@
 //! Reads what Windows is playing, draws the music screen and pushes it to the ESP32.
 use crate::clean::clean_title;
+use crate::img::Rgb;
 use crate::log;
 use crate::media;
+use crate::mirror::{self, Camera, Shot};
 use crate::model::{interpolate, Lyrics, NowPlaying};
 use crate::motion::{build_sheet_items, SheetAnimator};
 use crate::render::{dirty, rgb565, Rect, Renderer, H, W};
@@ -9,6 +11,7 @@ use crate::screen::{Client, Settings};
 use crate::sources;
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicIsize, Ordering::Relaxed};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -16,10 +19,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const LINE_WAIT: f64 = 1.0;
 const ANIM_WAIT: f64 = 1.0 / 50.0;
 const WAVE_WAIT: f64 = 1.0 / 20.0; // the timeline wave keeps moving
+const MIRROR_FRAME: f64 = 1.0 / 30.0; // never faster than this
 const RETRY: Duration = Duration::from_secs(120); // look for lyrics again after a miss
 
 /// What the tray icon says.
 pub type Status = Arc<Mutex<String>>;
+
+/// The window chosen in the tray to be shown instead of the music; 0 for none.
+pub type Mirrored = Arc<AtomicIsize>;
 
 fn set(status: &Status, text: &str) {
     let mut now = status.lock().unwrap_or_else(|e| e.into_inner());
@@ -103,8 +110,66 @@ impl Shelf {
     }
 }
 
+/// Streams the chosen window until another one, or none, is chosen.
+fn mirror_window(client: &mut Client, reply: &mut Settings, mirrored: &Mirrored, status: &Status) {
+    let window = mirrored.load(Relaxed);
+    // capturing and sending overlap: one picture waits while the next is being taken
+    let (send, shots) = mpsc::sync_channel(1);
+    let chosen = mirrored.clone();
+    std::thread::spawn(move || {
+        let mut camera = Camera::default();
+        while chosen.load(Relaxed) == window {
+            let began = Instant::now();
+            let shot = camera.shoot(window);
+            let pause = if matches!(shot, Shot::Frame(_)) { MIRROR_FRAME } else { 0.5 };
+            let gone = matches!(shot, Shot::Gone);
+            if send.send(shot).is_err() || gone {
+                break;
+            }
+            sleep(pause - began.elapsed().as_secs_f64());
+        }
+    });
+    let title = mirror::title(window);
+    let mut last = Rgb::new(W, H, [0; 3]); // newest picture of the window
+    let mut shown: Option<Rgb> = None;
+    let mut minimized = false;
+    log::line("mirroring a window");
+    while mirrored.load(Relaxed) == window {
+        match shots.recv_timeout(Duration::from_secs(1)) {
+            Ok(Shot::Frame(frame)) => (last, minimized) = (frame, false),
+            Ok(Shot::Minimized) => minimized = true,
+            Err(mpsc::RecvTimeoutError::Timeout) => {} // a hung window: keep the screen awake
+            Ok(Shot::Gone) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // unless something else was chosen meanwhile, go back to the music
+                let _ = mirrored.compare_exchange(window, 0, Relaxed, Relaxed);
+                break;
+            }
+        }
+        let r = mirror::union(&dirty(shown.as_ref(), &last));
+        let pixels = rgb565(&last.crop(r.x, r.y, r.w, r.h));
+        let Some(got) = client.send(&compress(&pixels), r, reply.stream) else {
+            shown = None;
+            set(status, "Không thấy màn");
+            sleep(2.0);
+            continue;
+        };
+        if minimized {
+            set(status, "Cửa sổ đang thu nhỏ");
+        } else {
+            set(status, &format!("Đang chiếu: {title}"));
+        }
+        let visible = got.music_mode && got.in_music;
+        shown = visible.then(|| last.clone());
+        *reply = got;
+        if !visible {
+            sleep(2.0); // the screen is in GIF mode
+        }
+    }
+    log::line("mirroring stopped");
+}
+
 /// The frame loop; never returns.
-pub fn run(host: &str, status: Status) {
+pub fn run(host: &str, status: Status, mirrored: Mirrored) {
     let mut client = Client::new(host);
     let mut reply = client.settings().unwrap_or_else(|| Settings { in_music: false, ..Default::default() });
     let mut reader = media::Reader::default();
@@ -120,6 +185,11 @@ pub fn run(host: &str, status: Status) {
     let began = Instant::now();
     log::line(&format!("sending to {host}"));
     loop {
+        if mirrored.load(Relaxed) != 0 {
+            mirror_window(&mut client, &mut reply, &mirrored, &status);
+            shown = None;
+            continue;
+        }
         let now = unix_now();
         if now - read_at >= 1.0 {
             np = match reader.read(&app) {
@@ -148,7 +218,7 @@ pub fn run(host: &str, status: Status) {
         let Some(playing) = np.as_ref().filter(|n| n.playing) else {
             shown = None;
             set(&status, "Chưa phát nhạc");
-            sleep(0.5); // nothing sent: the screen returns to its GIF after 5 s
+            sleep(0.2); // nothing sent: the screen returns to its GIF after 5 s
             continue;
         };
         let key = (playing.title.clone(), playing.artist.clone(), reply.sources.clone(), reply.word_sync);

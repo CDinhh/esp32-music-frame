@@ -96,6 +96,19 @@ Thêm GIF ngay trong mục **Thư viện GIF**: bấm **Thêm GIF** để chọn
 | Xem màn có ổn không | Mục **Tình trạng**: nhiệt độ, WiFi, số lần sụt nguồn |
 | Xem màn đang làm gì | Mục **Nhật ký** (tự cập nhật mỗi giây) |
 | Cập nhật phần mềm cho màn | Bấm đúp **`update-wifi.cmd`** (không cần cắm dây) |
+| Xem video trên màn nhỏ trong lúc làm việc khác | Bấm icon `MusicFrame.exe` ở khay → **Chiếu cửa sổ** → chọn cửa sổ (xem bên dưới) |
+
+### Chiếu một cửa sổ lên màn
+
+Chỉ có ở `MusicFrame.exe` (bản mới hơn v0.1.0). Màn phải đang ở chế độ **Nhạc**. Chọn **Tắt** để quay về lời bài hát.
+
+- Cửa sổ bị cửa sổ khác che vẫn chiếu. Thu nhỏ thì màn giữ hình cuối. Đóng cửa sổ thì tự về lời bài hát.
+- Chỉ có hình, tiếng vẫn phát ở máy tính. Muốn video đầy màn nhỏ thì bấm **F** trong trình phát video trước.
+- Chrome, Edge, Helium ngừng vẽ khi bị che. Đóng hẳn trình duyệt, rồi thêm vào cuối ô **Target** của shortcut dùng để mở nó:
+  `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion`
+- Game chạy **Fullscreen** độc quyền có thể làm cửa sổ phía sau ngừng vẽ; thử chế độ **Windowed Fullscreen**.
+- Nội dung chống sao chép (ví dụ Netflix) có thể chỉ ra màn đen.
+- Tốc độ phụ thuộc WiFi và độ phức tạp của hình: khoảng 12–28 hình/giây.
 
 ---
 

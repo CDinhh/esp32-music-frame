@@ -1,5 +1,7 @@
 //! The tray icon: the app has no window of its own.
-use crate::app::Status;
+use crate::app::{Mirrored, Status};
+use crate::mirror;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::OnceLock;
 use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -14,11 +16,14 @@ const FROM_ICON: u32 = WM_APP + 1;
 const OPEN_WEB: usize = 1;
 const OPEN_LOG: usize = 2;
 const QUIT: usize = 3;
+const MIRROR_OFF: usize = 4;
+const MIRROR_FIRST: usize = 100; // one id per listed window
 const SIZE: i32 = 32;
 
 struct Tray {
     host: String,
     status: Status,
+    mirrored: Mirrored,
     /// sent by Explorer when the taskbar is recreated: the icon has to be added again
     taskbar_created: u32,
     icon: isize,
@@ -90,10 +95,31 @@ fn open(file: &str, parameters: &str) {
     }
 }
 
+/// A window title as a menu line: not too long, and "&" is not an underline mark.
+fn label(title: &str) -> String {
+    let mut short: String = title.chars().take(60).collect();
+    if short.len() < title.len() {
+        short.push('…');
+    }
+    short.replace('&', "&&")
+}
+
 fn menu(hwnd: HWND, tray: &Tray) {
+    let windows = mirror::list_windows(); // as they are when the menu opens
+    let current = tray.mirrored.load(Relaxed);
+    let check = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
     // SAFETY: the menu is created, shown and destroyed here, on the thread that owns hwnd
     let chosen = unsafe {
         let Ok(menu) = CreatePopupMenu() else { return };
+        if let Ok(list) = CreatePopupMenu() {
+            for (i, (window, title)) in windows.iter().enumerate() {
+                let _ = AppendMenuW(list, check(*window == current), MIRROR_FIRST + i, &HSTRING::from(label(title)));
+            }
+            let _ = AppendMenuW(list, MF_SEPARATOR, 0, None);
+            let _ = AppendMenuW(list, check(current == 0), MIRROR_OFF, w!("Tắt"));
+            // the submenu is destroyed together with its parent
+            let _ = AppendMenuW(menu, MF_POPUP, list.0 as usize, w!("Chiếu cửa sổ"));
+        }
         let _ = AppendMenuW(menu, MF_STRING, OPEN_WEB, w!("Mở trang web màn hình"));
         let _ = AppendMenuW(menu, MF_STRING, OPEN_LOG, w!("Xem nhật ký"));
         let _ = AppendMenuW(menu, MF_STRING, QUIT, w!("Thoát"));
@@ -115,7 +141,12 @@ fn menu(hwnd: HWND, tray: &Tray) {
             let _ = Shell_NotifyIconW(NIM_DELETE, &data(hwnd, tray));
             PostQuitMessage(0);
         },
-        _ => {}
+        MIRROR_OFF => tray.mirrored.store(0, Relaxed),
+        id => {
+            if let Some((window, _)) = id.checked_sub(MIRROR_FIRST).and_then(|i| windows.get(i)) {
+                tray.mirrored.store(*window, Relaxed);
+            }
+        }
     }
 }
 
@@ -139,7 +170,7 @@ extern "system" fn handle(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPAR
 }
 
 /// Show the icon and stay until "Thoát" is chosen.
-pub fn run(host: String, status: Status) -> windows::core::Result<()> {
+pub fn run(host: String, status: Status, mirrored: Mirrored) -> windows::core::Result<()> {
     // SAFETY: standard hidden-window setup; every pointer passed lives for the call
     unsafe {
         let instance = GetModuleHandleW(None)?;
@@ -151,6 +182,7 @@ pub fn run(host: String, status: Status) -> windows::core::Result<()> {
         let tray = TRAY.get_or_init(|| Tray {
             host,
             status,
+            mirrored,
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
             icon: icon.0 as isize,
         });
@@ -191,5 +223,11 @@ mod tests {
         assert_eq!(t[127], 0);
         assert_eq!(String::from_utf16(&t[..126]).unwrap(), "🐧".repeat(63));
         assert_eq!(pixels().len(), 32 * 32 * 4);
+    }
+
+    #[test]
+    fn menu_lines_are_short_and_keep_ampersands() {
+        assert_eq!(label("Tom & Jerry"), "Tom && Jerry");
+        assert_eq!(label(&"ă".repeat(80)), format!("{}…", "ă".repeat(60)));
     }
 }

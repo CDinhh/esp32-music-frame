@@ -6,6 +6,7 @@ mod config;
 mod img;
 mod log;
 mod media;
+mod mirror;
 mod model;
 mod motion;
 mod parse;
@@ -15,18 +16,32 @@ mod sources;
 mod text;
 mod tray;
 
+use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+
 /// The tray icon on this thread, the frame loop on another.
-fn start() {
+/// `wanted`: part of a window title to start mirroring right away.
+fn start(wanted: Option<&str>) {
     if !tray::only_instance() {
         return;
     }
     // there is no console: a crash would otherwise leave no trace
     std::panic::set_hook(Box::new(|info| log::line(&format!("crashed: {info}"))));
+    // window sizes in real pixels, so a capture is complete on scaled displays
+    // SAFETY: called once, before any window exists
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    let mirrored = app::Mirrored::default();
+    if let Some(part) = wanted.map(str::to_lowercase) {
+        match mirror::list_windows().into_iter().find(|(_, title)| title.to_lowercase().contains(&part)) {
+            Some((window, _)) => mirrored.store(window, std::sync::atomic::Ordering::Relaxed),
+            None => log::line("--mirror: no window with that title"),
+        }
+    }
     let status = app::Status::default();
     let (host, shown) = (host(), status.clone());
     let screen = host.clone();
-    std::thread::spawn(move || app::run(&screen, shown));
-    if let Err(e) = tray::run(host, status) {
+    let chosen = mirrored.clone();
+    std::thread::spawn(move || app::run(&screen, shown, chosen));
+    if let Err(e) = tray::run(host, status, mirrored) {
         log::line(&format!("tray icon: {e}"));
     }
 }
@@ -73,6 +88,7 @@ fn main() {
     match args.as_slice() {
         ["--png", path] => println!("{}", one_png(path).unwrap_or_else(|e| e)),
         ["--lyrics", artist, title] => check_lyrics(artist, title),
-        _ => start(),
+        ["--mirror", part] => start(Some(part)),
+        _ => start(None),
     }
 }

@@ -100,7 +100,7 @@ Thêm GIF ngay trong mục **Thư viện GIF**: bấm **Thêm GIF** để chọn
 
 ### Chiếu một cửa sổ lên màn
 
-Chỉ có ở `MusicFrame.exe` (bản mới hơn v0.1.0). Màn phải đang ở chế độ **Nhạc**. Chọn **Tắt** để quay về lời bài hát.
+Chỉ có ở `MusicFrame.exe` (từ v0.2.0). Màn phải đang ở chế độ **Nhạc**. Chọn **Tắt** để quay về lời bài hát.
 
 - Cửa sổ bị cửa sổ khác che vẫn chiếu. Thu nhỏ thì màn giữ hình cuối. Đóng cửa sổ thì tự về lời bài hát.
 - Chỉ có hình, tiếng vẫn phát ở máy tính. Muốn chỉ thấy video thì bấm **F** trong trình phát video trước.

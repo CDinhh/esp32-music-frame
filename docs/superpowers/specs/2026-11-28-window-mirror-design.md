@@ -23,3 +23,7 @@ Tiếng (vẫn phát ở máy tính), bấm F hộ, cắt vùng video, vượt c
 
 ## Đo được (2026-11-28, màn thật, cửa sổ thử ngoài màn hình)
 Hình phẳng ~28 hình/s; ảnh chụp lướt toàn khung ~19 (zlib mức mặc định, mức nhanh chỉ ~16); nhiễu màu (xấu nhất) ~12. Nghẽn ở đường WiFi + vẽ trên màn, không ở khâu chụp, nên không làm Windows Graphics Capture.
+
+## Thêm sau khi dùng thử (2026-11-28)
+- Định thấy viền đen khó chịu với video 16:9: thêm mục **Phóng đầy màn (cắt hai bên)**, bật sẵn, lấy phần vuông giữa cửa sổ (không bóp méo). Thay cho dòng "không cắt vùng video" ở trên.
+- Phóng đầy gửi nhiều điểm ảnh hơn, ảnh lướt thử tụt ~19 → ~12 hình/s. Bỏ 1 bit màu mỗi kênh (chỉ khi chiếu) đưa lại ~15 hình/s, 22 KB/hình.

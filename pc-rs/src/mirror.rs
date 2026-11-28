@@ -1,6 +1,7 @@
 //! Reads one window's own pixels, also while other windows cover it, and shrinks them to the screen.
 use crate::img::Rgb;
 use crate::render::{Rect, H, W};
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
@@ -14,6 +15,10 @@ const FLAGS: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(1 | 2);
 fn handle(window: isize) -> HWND {
     HWND(window as *mut _)
 }
+
+/// Fill the square screen with the middle of the window (a wide video loses its sides) instead of
+/// fitting the whole window between black bars. Switched in the tray menu.
+pub static FILL: AtomicBool = AtomicBool::new(true);
 
 pub fn title(window: isize) -> String {
     let mut text = [0u16; 256];
@@ -137,14 +142,17 @@ impl Camera {
                 return Shot::Minimized;
             }
             let _ = GdiFlush();
-            Shot::Frame(letterbox(std::slice::from_raw_parts(surface.bits, w * h * 4), w, h))
+            Shot::Frame(shrink(std::slice::from_raw_parts(surface.bits, w * h * 4), w, h, FILL.load(Relaxed)))
         }
     }
 }
 
-/// Fit a BGRX picture into the screen, keeping its shape (black around it), each output pixel the
-/// average of the source pixels under it.
-pub fn letterbox(bgrx: &[u8], w: usize, h: usize) -> Rgb {
+/// Bring a BGRX picture to the screen without stretching it: its middle square when `fill`, else
+/// all of it with black around. Each output pixel is the average of the source pixels under it.
+pub fn shrink(bgrx: &[u8], width: usize, height: usize, fill: bool) -> Rgb {
+    // the part of the source that is used: left, top, size
+    let side = width.min(height);
+    let (cut_x, cut_y, w, h) = if fill { ((width - side) / 2, (height - side) / 2, side, side) } else { (0, 0, width, height) };
     let (ow, oh) = if w >= h { (W, (h * W / w).max(1)) } else { ((w * H / h).max(1), H) };
     let (left, top) = ((W - ow) / 2, (H - oh) / 2);
     let span = |i: usize, from: usize, to: usize| (i * from / to, ((i + 1) * from / to).max(i * from / to + 1));
@@ -154,7 +162,8 @@ pub fn letterbox(bgrx: &[u8], w: usize, h: usize) -> Rgb {
     for y in 0..oh {
         let (y0, y1) = span(y, h, oh);
         sums.fill([0; 3]);
-        for row in bgrx[y0 * w * 4..y1 * w * 4].chunks_exact(w * 4) {
+        for row in bgrx[(cut_y + y0) * width * 4..(cut_y + y1) * width * 4].chunks_exact(width * 4) {
+            let row = &row[cut_x * 4..];
             for (sum, &(x0, x1)) in sums.iter_mut().zip(&columns) {
                 for p in row[x0 * 4..x1 * 4].chunks_exact(4) {
                     sum[0] += u32::from(p[2]);
@@ -189,7 +198,7 @@ mod tests {
     fn a_wide_picture_keeps_its_shape_with_black_above_and_below() {
         let (red, blue) = ([0, 0, 255, 0], [255, 0, 0, 0]); // BGRX
         let source: Vec<u8> = [red, red, blue, blue, red, red, blue, blue].concat();
-        let out = letterbox(&source, 4, 2);
+        let out = shrink(&source, 4, 2, false);
         assert_eq!(out.get(0, 59), [0, 0, 0]);
         assert_eq!(out.get(0, 60), [255, 0, 0]);
         assert_eq!(out.get(239, 179), [0, 0, 255]);
@@ -197,10 +206,22 @@ mod tests {
     }
 
     #[test]
+    fn filling_cuts_the_sides_off_a_wide_picture() {
+        // green | red | blue | green: only the middle two columns remain, over the whole screen
+        let (green, red, blue) = ([0, 255, 0, 0], [0, 0, 255, 0], [255, 0, 0, 0]);
+        let source: Vec<u8> = [green, red, blue, green, green, red, blue, green].concat();
+        let out = shrink(&source, 4, 2, true);
+        assert_eq!(out.get(0, 0), [255, 0, 0]);
+        assert_eq!(out.get(119, 239), [255, 0, 0]);
+        assert_eq!(out.get(120, 0), [0, 0, 255]);
+        assert_eq!(out.get(239, 239), [0, 0, 255]);
+    }
+
+    #[test]
     fn shrinking_averages_and_a_tall_picture_gets_side_bars() {
         // 480 wide, 960 high, black and white columns: halves to 120 x 240 grey in the middle
         let row: Vec<u8> = (0..480).flat_map(|x| if x % 2 == 0 { [0u8; 4] } else { [200; 4] }).collect();
-        let out = letterbox(&row.repeat(960), 480, 960);
+        let out = shrink(&row.repeat(960), 480, 960, false);
         assert_eq!(out.get(59, 0), [0, 0, 0]);
         assert_eq!(out.get(60, 0), [100, 100, 100]);
         assert_eq!(out.get(179, 239), [100, 100, 100]);
